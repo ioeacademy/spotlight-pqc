@@ -117,6 +117,7 @@
   }
 
   /* ═══════════════════════ Tutorial ═══════════════════════ */
+  const stepListeners = [];
   let cur = 0; const done = new Set(); let since = 0; const usedShowMe = new Set(); const t0 = Date.now();
   const PART = { intro: 'Intro', base: 'Baseline', verify: 'Verify', ppk: 'PPK', pqc: 'ML-KEM', hub: 'Hub & spoke' };
   function renderSteps() {
@@ -158,6 +159,7 @@
     const li = $('#step-' + i);
     if (li) li.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
     const s = STEPS[i]; if (s && s.devices.length) selectDev(s.devices[0], false);
+    for (const fn of stepListeners) try { fn(i, s); } catch (e) { console.warn(e); }
     updateProgress();
     checkStep();
   }
@@ -318,6 +320,7 @@
   const subnetOf = i => { const m = ip2n(i.mask), len = i.mask.split('.').reduce((a, o) => a + (+o).toString(2).split('1').length - 1, 0); return `${n2ip(ip2n(i.ip) - ip2n(i.ip) % (2 ** 32 - m))}/${len}`; };
   const fsScale = () => +getComputedStyle(document.documentElement).getPropertyValue('--fs') || 1;
   function tunnelView(t) {
+    if (t.state === 'up' && t.half) return { kind: 'fail', label: `${ifShort(t.a.if)} · ⚠ half-open: ${lab.dev(t.half).hostname} has no SA` };
     if (t.state === 'up' && t.sa.child.down) return { kind: 'fail', label: `${ifShort(t.a.if)} · IKE up · ✕ no IPsec SA` };
     if (t.state === 'up') {
       const p = t.params; const kind = p.pqc ? 'pqc' : p.ppk ? 'ppk' : 'classic';
@@ -331,7 +334,7 @@
     const tuns = lab.tunnels();
     const halves = lab.halfTunnels().filter(h => h.protected && !h.shutdown && h.mode === 'ipsec ipv4');
     const ownerOf = ip => DEVS.find(k => Object.values(lab.dev(k).ifaces).some(i => i.ip === ip && i.kind !== 'tunnel'));
-    const sig = JSON.stringify([fsScale(), tuns.map(t => [tunAddr(t.a.dev, t.a.if), tunAddr(t.b.dev, t.b.if)].map(i => i && i.ip + '/' + i.mask)), tuns.map(t => [t.key, t.state, t.code, t.params && [t.params.pqc, t.params.ppk], t.sa && t.sa.child.down]), halves.map(h => [h.dev, h.if, h.dest])]);
+    const sig = JSON.stringify([fsScale(), tuns.map(t => t.half), tuns.map(t => [tunAddr(t.a.dev, t.a.if), tunAddr(t.b.dev, t.b.if)].map(i => i && i.ip + '/' + i.mask)), tuns.map(t => [t.key, t.state, t.code, t.params && [t.params.pqc, t.params.ppk], t.sa && t.sa.child.down]), halves.map(h => [h.dev, h.if, h.dest])]);
     if (sig === tunSig) return; tunSig = sig;
     gTun.innerHTML = '';
     const items = tuns.map(t => ({ key: t.key, a: t.a.dev, b: t.b.dev, ends: [[t.a.dev, t.a.if], [t.b.dev, t.b.if]], ...tunnelView(t) }));
@@ -428,10 +431,11 @@
     const A = t.a, B = t.b;
     const ipA = lab.dev(A.dev).ifaces[A.if] ? srcOf(A) : '', ipB = srcOf(B);
     $('#modal-title').textContent = `${H(A.dev)} ${A.if} (${ipA}) ⇄ ${H(B.dev)} ${B.if} (${ipB})`;
-    const chip = t.state === 'up' ? (t.params.pqc ? ['pqc', 'UP · ML-KEM'] : t.params.ppk ? ['ppk', 'UP · PPK'] : ['classic', 'UP · CLASSICAL']) : t.state === 'fail' ? ['fail', 'FAILED · ' + t.code] : ['neg', 'NEGOTIATING'];
+    const chip = t.state === 'up' && t.half ? ['fail', 'HALF-OPEN'] : t.state === 'up' ? (t.params.pqc ? ['pqc', 'UP · ML-KEM'] : t.params.ppk ? ['ppk', 'UP · PPK'] : ['classic', 'UP · CLASSICAL']) : t.state === 'fail' ? ['fail', 'FAILED · ' + t.code] : ['neg', 'NEGOTIATING'];
     let html = `<p><span class="status-chip" style="background:var(--${chip[0]})">${chip[1]}</span></p>`;
     if (t.state === 'fail') html += `<div class="err-box"><b>Why:</b> ${esc(t.err)}</div><p>IKEv2 retries every few seconds; traffic (a ping through the tunnel) retries immediately. Fix the configuration and the tunnel comes up on its own.</p>`;
     if (t.state === 'neg') html += `<p>IKEv2 is (re)negotiating. Send traffic through the tunnel, or wait a moment.</p>`;
+    if (t.state === 'up' && t.half) { const ok = t.half === A.dev ? B.dev : A.dev; html += `<div class="err-box"><b>Half-open:</b> ${esc(H(ok))} completed IKE_AUTH and is READY, but ${esc(H(t.half))} (the initiator) rejected ${esc(H(ok))}'s identity after ${esc(H(ok))} had installed its SAs. ${esc(H(ok))} encrypts; ${esc(H(t.half))} has no SA and drops the packets (<code>%CRYPTO-4-RECVD_PKT_INV_SPI</code>). Check <code>match identity remote address</code> on ${esc(H(t.half))}, and always look at both peers.</div>`; }
     const sa = t.sa;
     if (sa && sa.child.down) html += `<div class="err-box"><b>Child SA down:</b> ${esc(sa.child.err)}</div>`;
     if (sa) {
@@ -511,4 +515,9 @@ SK_pi' = prf+(PPK, SK_pi)    SK_pr' = prf+(PPK, SK_pr)   ← RFC 8784: PPK "${es
   let fsSaved = 's'; try { fsSaved = localStorage.getItem('spq-fs') || 's'; } catch (e) { }
   topoReady = true; setFont(fsSaved, false);
   window.__lab = lab; // for debugging in the console
+  // extension point for tutorial-specific widgets (e.g. the negotiation panel in v5-quickstart)
+  if (typeof window.TUTORIAL.mount === 'function') window.TUTORIAL.mount({
+    lab, typeCmd, selectDev, refresh, checkStep, track: TRACK_ID,
+    isBusy: () => busy, setBusy: v => { busy = !!v; }, onStep: fn => stepListeners.push(fn), current: () => cur,
+  });
 })();

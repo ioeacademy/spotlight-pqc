@@ -383,14 +383,171 @@ ${callout('info', 'With many sites, upgrade the <b>hub</b> first with <code>opti
     },
   ];
 
-  const ALL = [...CLASSIC, ...PQC, ...MIGRATE];
+  /* ═══════════════════════ Track 4 · Negotiation lab ═══════════════════════
+     Scenarios and expected behaviour: vpn-negotiation-mismatch-teaching dataset (CML IOS XE 26.02).
+     C0–C8 were captured on CML; M2 is backed by real C8235-G2 output; M1/M4 are inferred.        */
+  const NAMES = { prop: 'VPN-PROP', pol: 'VPN-POL', keys: 'VPN-KEYS', prof: 'VPN-PROF', ts: 'VPN-TS', ipsec: 'VPN-IPSEC' };
+  const NEG_BASE = { enc: ['aes-cbc-256'], integ: ['sha512'], group: [20], pqc: 'none', optional: false, ts: 'esp-gcm 256', psk: PSK };
+  const BASE = { r1: { ...NEG_BASE, peerId: '10.0.23.2' }, r3: { ...NEG_BASE, peerId: '10.0.12.1' } };
+  const SCENARIOS = [
+    { id: 'C0', title: 'Baseline: both ends identical', label: 'observed', initiator: 'r1', r1: {}, r3: {} },
+    { id: 'C1', title: 'Encryption differs (R3 aes-cbc-128)', label: 'observed', initiator: 'r3', r1: {}, r3: { enc: ['aes-cbc-128'] } },
+    { id: 'C2', title: 'Integrity differs (R3 sha256)', label: 'observed', initiator: 'r3', r1: {}, r3: { integ: ['sha256'] } },
+    { id: 'C3', title: 'DH group differs (R3 group 21)', label: 'observed', initiator: 'r3', r1: {}, r3: { group: [21] } },
+    { id: 'C4', title: 'R3 offers lists, group 21 first: INVALID_KE_PAYLOAD retry', label: 'observed', initiator: 'r3', r1: {}, r3: { enc: ['aes-cbc-128', 'aes-cbc-256'], integ: ['sha256', 'sha512'], group: [21, 20] } },
+    { id: 'C5', title: 'Responder lists group 21 20, initiator only 20: no retry', label: 'observed', initiator: 'r3', r1: { group: [21, 20] }, r3: {} },
+    { id: 'C6', title: 'ESP transform set differs', label: 'observed', initiator: 'r1', r1: {}, r3: { ts: 'esp-aes 256 esp-sha256-hmac' } },
+    { id: 'C7', title: 'Pre-shared key differs', label: 'observed', initiator: 'r3', r1: {}, r3: { psk: 'Wr0ngKey-lab' } },
+    { id: 'C8', title: 'R3 expects another peer identity (10.0.12.99): half-open', label: 'observed', initiator: 'r3', r1: {}, r3: { peerId: '10.0.12.99' } },
+    { id: 'M1', title: 'ML-KEM required on R1, none on R3', label: 'inferred', initiator: 'r3', r1: { pqc: 'mlkem768' }, r3: {} },
+    { id: 'M2', title: 'ML-KEM optional on R1, none on R3: silent fallback', label: 'derived', initiator: 'r3', r1: { pqc: 'mlkem768', optional: true }, r3: {} },
+    { id: 'M4', title: 'ML-KEM 768 on R1, 1024 on R3, both required', label: 'inferred', initiator: 'r3', r1: { pqc: 'mlkem768' }, r3: { pqc: 'mlkem1024' } },
+  ];
+  // IOS commands that turn configuration `from` into `to` (one router); used by the panel and by the tests
+  function negCommands(dev, from, to) {
+    const L = [], prop = [], peer = dev === 'r1' ? 'R3' : 'R1';
+    if (to.enc.join() !== from.enc.join()) prop.push(` encryption ${to.enc.join(' ')}`);
+    if (to.integ.join() !== from.integ.join()) prop.push(` integrity ${to.integ.join(' ')}`);
+    if (to.group.join() !== from.group.join()) prop.push(` group ${to.group.join(' ')}`);
+    if (to.pqc !== from.pqc || to.optional !== from.optional) prop.push(to.pqc === 'none' ? ' no pqc' : ` pqc ${to.pqc}${to.optional ? ' optional' : ''}`);
+    if (prop.length) L.push(`crypto ikev2 proposal ${NAMES.prop}`, ...prop);
+    if (to.ts !== from.ts) L.push(`crypto ipsec transform-set ${NAMES.ts} ${to.ts}`);
+    if (to.psk !== from.psk) L.push(`crypto ikev2 keyring ${NAMES.keys}`, ` peer ${peer}`, `  pre-shared-key ${to.psk}`);
+    if (to.peerId !== from.peerId) L.push(`crypto ikev2 profile ${NAMES.prof}`, ` no match identity remote address ${from.peerId} 255.255.255.255`, ` match identity remote address ${to.peerId} 255.255.255.255`);
+    return L;
+  }
+  const NEG = { NAMES, BASE, SCENARIOS, TUN: { r1: '192.168.100.1', r3: '192.168.100.2' }, commands: negCommands,
+    apply: (sc, dev) => JSON.parse(JSON.stringify({ ...BASE[dev], ...sc[dev] })) };
+  const R1_NEG = [...vpnConfig({ name: 'VPN', peerName: 'R3', peer: '10.0.23.2', tunIp: '192.168.100.1', pfs: true, frag: true }).slice(0, -1), 'end']
+    .map(l => l.replace('VPN-POLICY', NAMES.pol).replace('VPN-PROPOSAL', NAMES.prop).replace('VPN-KEYRING', NAMES.keys).replace('VPN-PROFILE', NAMES.prof));
+  const R3_NEG = [...vpnConfig({ name: 'VPN', peerName: 'R1', peer: '10.0.12.1', tunIp: '192.168.100.2', pfs: true, frag: true }).slice(0, -1), 'end']
+    .map(l => l.replace('VPN-POLICY', NAMES.pol).replace('VPN-PROPOSAL', NAMES.prop).replace('VPN-KEYRING', NAMES.keys).replace('VPN-PROFILE', NAMES.prof));
+  // negotiation attempts since the step started
+  const negSince = (ctx, test) => ctx.lab.negLog.filter(e => e.seq > ctx.since).some(test);
+  const upNow = lab => { const sa = sa13(lab); return !!sa; };
+  const PANEL_TIP = callout('info', 'Use the <b>Negotiation parameters</b> panel below: pick a scenario (or change settings yourself), <b>predict</b> the outcome, then <b>Apply & renegotiate</b>. The panel types the IOS commands into the consoles, clears the SA from the router you chose as initiator and pings through the tunnel. You can also type the commands yourself.') + '<div class="neg-slot"></div>';
+
+  const NEGOTIATE = [
+    {
+      id: 'n-intro', title: 'When the two ends choose differently', part: 'intro', devices: [],
+      html: `
+${EDU_NOTICE}
+<p>Each end of an IKEv2 VPN has its own configuration. In this lab you change <b>one setting at a time</b> on R1 or R3 and watch what the routers do: does the tunnel come up, fail, retry, or end up half-open?</p>
+<p>Every experiment reproduces a scenario that was <b>captured on real IOS XE 26.02 routers</b> (Cisco Modeling Labs). The simulator's outcome, error lines and show output were checked against those captures.</p>
+<table class="t">
+<tr><th>Exchange</th><th>What is agreed</th><th>If it fails</th></tr>
+<tr><td>IKE_SA_INIT</td><td>Encryption, integrity/PRF, DH group, ML-KEM</td><td>NO_PROPOSAL_CHOSEN — no SA at all</td></tr>
+<tr><td>IKE_AUTH</td><td>Identity, pre-shared key, and the first Child SA (transform set)</td><td>Authentication or Child SA failure</td></tr>
+</table>
+<p>For each experiment: <b>predict → apply → observe → explain</b>. Predicting first makes the result stick.</p>
+<h4>The lab</h4>
+${LAB_TABLE}`,
+      run: [], validate: () => true, hints: [],
+    },
+    {
+      id: 'n-build', title: 'Build the baseline on both routers', part: 'base', devices: ['r1', 'r3'],
+      html: `
+<p>Both ends start identical: <code>aes-cbc-256 / sha512 / group 20</code>, the same pre-shared key and the transform set <code>esp-gcm 256</code>. Turn on <code>debug crypto ikev2 error</code> on both routers so the negotiation errors appear in the consoles.</p>
+${cfg('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end'])}
+${cfg('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end'])}
+${cfg('r1', shown(R1_NEG))}
+${cfg('r3', shown(R3_NEG))}
+${cfg('r1', ['debug crypto ikev2 error', 'ping 192.168.100.2'])}
+${cfg('r3', ['debug crypto ikev2 error'])}
+${callout('tip', 'The baseline also logs <code>% IKEv2 profile not found</code> and <code>Error constructing config reply</code> on one router. That is harmless config-exchange noise, seen on real routers too: the tunnel is fine. Don\'t chase it.')}
+<div class="goal">Goal: the R1–R3 tunnel is up and <code>debug crypto ikev2 error</code> is on, on both routers.</div>`,
+      run: [['r1', 'enable'], ...runOf('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end']), ['r3', 'enable'], ...runOf('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end']),
+        ...runOf('r1', R1_NEG), ...runOf('r3', R3_NEG), ['r1', 'debug crypto ikev2 error'], ['r3', 'debug crypto ikev2 error'], ['r1', 'ping 192.168.100.2']],
+      validate: ctx => upNow(ctx.lab) && ['r1', 'r3'].every(k => ctx.lab.dev(k).debug.err || ctx.lab.dev(k).debug.ikev2),
+      hints: [{ when: (d, c) => /^debug crypto ikev2$/.test(c), text: 'Full debugging works too, but it is verbose. <code>debug crypto ikev2 error</code> shows only the lines that matter here.' }],
+    },
+    {
+      id: 'n-one', title: 'One setting differs (C1–C3)', part: 'verify', devices: ['r1', 'r3'], panel: true,
+      html: `
+<p>Change <b>one</b> IKE algorithm on R3 only: try <b>C1</b> (encryption), <b>C2</b> (integrity) or <b>C3</b> (DH group).</p>
+${PANEL_TIP}
+<p>Then read the consoles. The <b>responder</b> prints what it received and what it expected:</p>
+${out(["IKEv2-ERROR:(SESSION ID = 89,SA ID = 1):Received Policies: : Failed to find a matching policyProposal 1:  ENCRYPTION: AES-CBC-128 PRF: SHA512 INTEGRITY: SHA512 DH GROUP: DH_GROUP_384_ECP/Group 20", "IKEv2-ERROR:(SESSION ID = 89,SA ID = 1):Expected Policies: : Failed to find a matching policyProposal 1:  ENCRYPTION: AES-CBC-256 PRF: SHA512 INTEGRITY: SHA512 DH GROUP: DH_GROUP_384_ECP/Group 20"])}
+<p>The initiator only gets <code>: Received no proposal chosen notify</code>. Compare the two policy lines to see <i>which</i> algorithm differs.</p>
+<p><b>Question:</b> on which router do you find the useful line, and why there?</p>
+<div class="goal">Goal: cause a NO_PROPOSAL_CHOSEN, then go back to the <b>↺ baseline</b> so the tunnel is up again.</div>`,
+      run: [], validate: ctx => negSince(ctx, e => e.code === 'NO_PROPOSAL_CHOSEN' && e.stage === 'init' && !e.mlkem) && upNow(ctx.lab), hints: [],
+    },
+    {
+      id: 'n-lists', title: 'Lists, and the DH retry (C4, C5)', part: 'verify', devices: ['r1', 'r3'], panel: true,
+      html: `
+<p>A proposal can list several values. The responder picks from the <b>overlap</b>, so lists make a proposal tolerant.</p>
+<p>There is a catch for DH: the initiator must already send its key share (KE payload) in IKE_SA_INIT, so it <i>guesses</i> — it uses the <b>first</b> group in its list. If the responder picks another group, it answers <code>INVALID_KE_PAYLOAD</code> and the initiator retries. One extra round trip, no failure.</p>
+<ul><li><b>C4</b>: R3 initiates with <code>group 21 20</code>; R1 only has 20 → retry.</li>
+<li><b>C5</b>: R1 (the responder) lists <code>21 20</code>, R3 only 20 → <b>no</b> retry. Only the initiator's first group matters.</li></ul>
+${PANEL_TIP}
+<p>Check <code>show crypto ikev2 stats exchange</code> before and after: the retry costs one extra IKE_SA_INIT.</p>
+<div class="goal">Goal: bring the tunnel up after an INVALID_KE_PAYLOAD retry.</div>`,
+      run: [], validate: ctx => negSince(ctx, e => e.ok && e.keRetry), hints: [],
+    },
+    {
+      id: 'n-child', title: 'Two SAs: the transform set (C6)', part: 'verify', devices: ['r1', 'r3'], panel: true,
+      html: `
+<p>The IKE SA and the IPsec (Child) SA are negotiated separately. The first Child SA is negotiated <b>inside IKE_AUTH</b>, with the transform set.</p>
+<p>Try <b>C6</b>: R3 uses <code>esp-aes 256 esp-sha256-hmac</code> instead of <code>esp-gcm 256</code>. The IKE proposal still matches…</p>
+${PANEL_TIP}
+${callout('info', 'On IOS XE, when that first Child SA fails, the router deletes the IKE SA too: <code>show crypto ikev2 sa</code> is empty and <code>show crypto session</code> is DOWN on both ends. Look for <code>Received Policies: … ESP: Proposal 1:</code> on the responder.')}
+<div class="goal">Goal: cause the transform-set failure, then restore the baseline.</div>`,
+      run: [], validate: ctx => negSince(ctx, e => e.stage === 'child') && upNow(ctx.lab), hints: [],
+    },
+    {
+      id: 'n-auth', title: 'Authentication and identity (C7, C8)', part: 'verify', devices: ['r1', 'r3'], panel: true,
+      html: `
+<p>Authentication comes <b>after</b> the algorithms are agreed, in IKE_AUTH.</p>
+<ul><li><b>C7</b>: different pre-shared keys → <code>Failed to authenticate the IKE SA</code> on both routers.</li>
+<li><b>C8</b>: R3's profile expects R1 at <code>10.0.12.99</code>. With R3 initiating, R1 accepts R3 and installs its SAs; R3 only then rejects R1's identity. Result: a <b>half-open</b> tunnel. R1 shows READY and keeps encrypting; R3 has no SA and drops the packets with <code>%CRYPTO-4-RECVD_PKT_INV_SPI</code>.</li></ul>
+${PANEL_TIP}
+${callout('tip', 'Run C8 a second time with <b>R1</b> initiating. What changes, and why? (Hint: the responder checks the identity <i>before</i> it answers.) Always check <b>both</b> peers.')}
+<div class="goal">Goal: see an authentication failure and a half-open tunnel.</div>`,
+      run: [], validate: ctx => negSince(ctx, e => e.code === 'AUTHENTICATION_FAILED') && negSince(ctx, e => e.ok && e.half), hints: [],
+    },
+    {
+      id: 'n-pqc', title: 'ML-KEM is one more transform (M2, M1, M4)', part: 'pqc', devices: ['r1', 'r3'], panel: true,
+      html: `
+<p>ML-KEM sits in the IKE proposal like the other algorithms:</p>
+<ul><li><b>M2</b>: <code>pqc mlkem768 optional</code> on R1, nothing on R3 → the tunnel comes up <b>classical, silently</b>. No error; the only evidence is a missing <code>PQC Key Exchange:</code> line.</li>
+<li><b>M1</b>: <code>pqc mlkem768</code> (required) on R1, nothing on R3 → fails like any proposal mismatch.</li>
+<li><b>M4</b>: R1 <code>mlkem768</code>, R3 <code>mlkem1024</code>, both required → no common parameter set, fails.</li></ul>
+${PANEL_TIP}
+${callout('info', 'M2 matches real C8235-G2 output (Gomez, Exercise 4). M1 and M4 are the <i>expected</i> behaviour of an ML-KEM-capable router; the CML virtual routers used for the other captures ignore <code>pqc</code>.')}
+<div class="goal">Goal: see the silent classical fallback (M2) and a required-ML-KEM failure (M1 or M4).</div>`,
+      run: [], validate: ctx => negSince(ctx, e => e.ok && !e.pqc && e.pqcModes.includes('optional')) && negSince(ctx, e => e.code === 'NO_PROPOSAL_CHOSEN' && e.mlkem), hints: [],
+    },
+    {
+      id: 'n-wrap', title: 'The rules you found', part: 'intro', devices: [], panel: true,
+      html: `
+<table class="t">
+<tr><th>#</th><th>Rule</th><th>Seen in</th></tr>
+<tr><td>1</td><td>IKE_SA_INIT negotiates the algorithms. Encryption, integrity/PRF and DH group each need a common value, or NO_PROPOSAL_CHOSEN.</td><td>C1–C3</td></tr>
+<tr><td>2</td><td>The responder picks from the overlap: lists make a proposal tolerant.</td><td>C4</td></tr>
+<tr><td>3</td><td>A wrong DH guess costs one INVALID_KE_PAYLOAD retry, not a failure. Only the initiator's first group matters.</td><td>C4, C5</td></tr>
+<tr><td>4</td><td>The IKE SA and the IPsec SA are negotiated separately; a Child SA failure in IKE_AUTH deletes the IKE SA too.</td><td>C6</td></tr>
+<tr><td>5</td><td>Authentication and identity are checked after algorithm agreement, in IKE_AUTH.</td><td>C7, C8</td></tr>
+<tr><td>6</td><td>One end can believe the tunnel is up. Always check both peers.</td><td>C8</td></tr>
+<tr><td>7</td><td>ML-KEM is one more transform. Required behaves like any mismatch; optional falls back silently.</td><td>M1, M2, M4</td></tr>
+<tr><td>8</td><td>Not every error matters: config-exchange noise appears on a healthy tunnel.</td><td>C0</td></tr>
+</table>
+<p>Keep experimenting with the panel: combine changes, swap the initiator, and predict before you apply.</p>
+<div class="neg-slot"></div>
+<p class="src">Diagnostic toolbox: <code>show crypto ikev2 proposal</code>, <code>show crypto ikev2 sa [detailed]</code>, <code>show crypto session</code>, <code>show crypto ipsec sa</code>, <code>show crypto ikev2 stats exchange</code>, <code>debug crypto ikev2 error</code>, <code>clear crypto ikev2 sa</code>.</p>`,
+      run: [], validate: () => true, hints: [],
+    },
+  ];
+
+  const ALL = [...CLASSIC, ...PQC, ...MIGRATE, ...NEGOTIATE];
   const BY_ID = Object.fromEntries(ALL.map(x => [x.id, x]));
   const TRACKS = {
     classic: { title: 'Quick lab · Classic IKEv2 VPN', badge: 'Classic', kicker: 'Short lab — classic site-to-site VPN', finish: 'Lab complete — classic IKEv2 VPN built and proven', steps: CLASSIC.map(x => x.id) },
     pqc: { title: 'Quick lab · Post-Quantum VPN (ML-KEM)', badge: 'PQC', kicker: 'Short lab — ML-KEM-768 hybrid VPN', finish: 'Lab complete — post-quantum VPN with ML-KEM-768', steps: PQC.map(x => x.id) },
+    negotiate: { title: 'Quick lab · Negotiation experiments', badge: 'Negotiation', kicker: 'What happens when the two ends differ', finish: 'Lab complete — you derived the negotiation rules', steps: NEGOTIATE.map(x => x.id) },
     migrate: { title: 'Quick lab · From Classic to PQC', badge: 'Classic → PQC', kicker: 'Short lab — upgrade a classic VPN to ML-KEM', finish: 'Lab complete — classic VPN migrated to ML-KEM-768', steps: MIGRATE.map(x => x.id) },
   };
-  const api = { STEPS: ALL, TRACKS, BY_ID, DEFAULT_TRACK: 'classic', GUIDE_URL, BLOG_URL };
+  const api = { STEPS: ALL, TRACKS, BY_ID, DEFAULT_TRACK: 'classic', GUIDE_URL, BLOG_URL, NEG };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TUTORIAL = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

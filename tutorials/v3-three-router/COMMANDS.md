@@ -67,7 +67,9 @@ from anywhere and logs `%SYS-5-CONFIG_I`.
 | `clear crypto session` | Same as above. |
 | `clear crypto sa` | Rekeys only the IPsec (child) SAs; applies the PFS rules. |
 | `clear crypto ikev2 stats` | `Cleared crypto ikev2 statistics`. Resets the SA statistics only; the per-exchange counters keep counting from boot (as observed on IOS XE 26.02). |
-| `debug crypto ikev2` | Enables IKEv2 debug messages on the console. |
+| `debug crypto ikev2` | Enables IKEv2 debug messages on the console (simulator trace + error lines). |
+| `debug crypto ikev2 error` | Only the `IKEv2-ERROR:(SESSION ID = n,SA ID = 1):…` lines, worded as IOS XE 26.02 prints them. |
+| `clear logging` | Empties the log buffer. |
 | `undebug all` / `no debug all` | |
 | `write memory` / `write` / `copy running-config startup-config` | Cosmetic (`[OK]`). |
 | `terminal length <0-512>`, `exit`, `logout` | No-ops. |
@@ -91,7 +93,7 @@ from anywhere and logs `%SYS-5-CONFIG_I`.
 | `show crypto ikev2 session [detailed]` | Session view, including the Child SA block (`detailed`). |
 | `show crypto ikev2 stats` | SA counters, `Max in nego`, quantum-resistant (QR) and manual PPK counts. |
 | `show crypto ikev2 stats exchange` | Per-exchange counters (IKE_SA_INIT, IKE_INTERMEDIATE, IKE_AUTH, CREATE_CHILD_SA, INFORMATIONAL, …). |
-| `show crypto ikev2 proposal` | Including `PQC Key Exchange` and the `default` proposal when active. |
+| `show crypto ikev2 proposal [NAME]` | Including `PQC Key Exchange` and the `default` proposal when active. |
 | `show crypto ikev2 policy` | User policies plus `default`. |
 | `show crypto ikev2 profile` | Full IOS layout (identities, auth methods, keyring, PPK keyring, lifetime). |
 | `show crypto ipsec sa [detail]` | SPIs as `0xHEX(dec)`, encaps/decaps counters, transform, conn id/flow, IV size, path/IP MTU. |
@@ -139,7 +141,7 @@ Entering a crypto object that is still incomplete prints the IOS warning, e.g.
 
 | Command | no | Notes |
 |---|---|---|
-| `encryption (aes-cbc-128\|aes-cbc-192\|aes-cbc-256\|aes-gcm-128\|aes-gcm-256)` ×1–3 | ✓ | Several values in one proposal; negotiation picks the first in common. |
+| `encryption (aes-cbc-128\|aes-cbc-192\|aes-cbc-256\|aes-gcm-128\|aes-gcm-256)` ×1–3 | ✓ | Several values in one proposal; negotiation picks from the overlap. Each command **replaces** the list, as on IOS. |
 | `integrity (sha1\|sha256\|sha384\|sha512)` ×1–3 | ✓ | |
 | `group (14\|15\|16\|19\|20\|21\|24)` ×1–3 | ✓ | |
 | `prf (sha1\|sha256\|sha384\|sha512)` | ✓ | |
@@ -189,7 +191,16 @@ Entering a crypto object that is still incomplete prints the IOS warning, e.g.
 
 - **Smart defaults**: `default` proposal / policy / IPsec profile / transform set, used only when no complete user policy exists.
 - **IKEv2 negotiation per tunnel**: proposal intersection, ML-KEM required vs optional (mismatch → `NO_PROPOSAL_CHOSEN`), PPK required/optional, identities, PSK (including asymmetric), fragmentation, transform-set match.
-- **Failure modes**: wrong PSK (`AUTHENTICATION_FAILED`), no common proposal, IKE up but child SA failed (tunnel line protocol stays down, "IKE up · no IPsec SA" in the topology).
+- **Negotiation outcomes, checked against real IOS XE 26.02 captures** (`vpn-negotiation-mismatch-teaching` dataset, `test/negotiation-replay.js`):
+  - the initiator is the router that cleared the SA or sent the traffic; failed attempts alternate between the two ends;
+  - no common encryption / integrity / DH group → `NO_PROPOSAL_CHOSEN` in IKE_SA_INIT, with *Received / Expected Policies* on the responder;
+  - the initiator's KE payload uses its first DH group; another choice costs one `INVALID_KE_PAYLOAD` retry;
+  - transform-set mismatch → the first Child SA fails inside IKE_AUTH and IOS deletes the IKE SA too;
+  - different pre-shared keys → `Failed to authenticate the IKE SA` on both ends;
+  - the responder has no profile for the initiator's identity → no SA; the initiator rejects the responder's identity → **half-open** tunnel (responder READY and encrypting, initiator none, `%CRYPTO-4-RECVD_PKT_INV_SPI`);
+  - ML-KEM required vs none, or different parameter sets → fails like a proposal mismatch; `optional` vs none → classical, silently;
+  - harmless config-exchange noise (`% IKEv2 profile not found`, `Error constructing config reply`) on healthy tunnels, as on real routers.
+- **Rekey failures**: a PFS mismatch on `CREATE_CHILD_SA` keeps the IKE SA ("IKE up · no IPsec SA" in the topology).
 - **PFS outcomes** on `clear crypto sa` / rekey, including mismatched groups.
 - **Routing**: connected, static (next hop or exit interface), default route, hop-by-hop forwarding across R1–R2–R3, ARP learned from IKE.
 - **Counters**: IPsec encaps/decaps, Tunnel interface packets/bytes, IKEv2 stats and per-exchange counters.
@@ -201,5 +212,6 @@ Dynamic routing (OSPF, EIGRP, BGP), ACLs, NAT, crypto maps and IKEv1 (`crypto is
 `show ip route static`, `reload`, `erase`. Output of `show logging` and `stats exchange` depends on what was
 run in the session.
 
-Verification: `node test/run-tests.js` (tutorial steps) and `node test/groundtruth-replay.js <dataset-dir>`
-(100% structural match on the observed CML records).
+Verification: `node test/run-tests.js` (tutorial steps), `node test/groundtruth-replay.js <dataset-dir>`
+(100% structural match on the observed CML records) and `node test/negotiation-replay.js <dataset-dir>`
+(all 12 negotiation scenarios: outcome, key error lines, show-command layout).

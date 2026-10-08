@@ -86,6 +86,10 @@
   const spiLong = s => { const v = spiNum(s); return `0x${v.toString(16).toUpperCase()}(${v})`; };
   const spiShort = s => `0x${spiNum(s).toString(16).toUpperCase()}`;
   const hms = sec => [sec / 3600, sec / 60 % 60, sec % 60].map(n => String(Math.floor(n)).padStart(2, '0')).join(':');
+  // IKEv2 policy dumps in `debug crypto ikev2 error` (Received / Expected Policies)
+  const IKE_ENC = { 'aes-cbc-128': 'AES-CBC-128', 'aes-cbc-192': 'AES-CBC-192', 'aes-cbc-256': 'AES-CBC-256', 'aes-gcm-128': 'AES-GCM-128', 'aes-gcm-256': 'AES-GCM-256' };
+  const policyDump = props => props.map((p, i) => `Proposal ${i + 1}:  ENCRYPTION: ${p.enc.map(e => IKE_ENC[e] || e.toUpperCase()).join(' ')} PRF: ${(p.prf ? [p.prf] : p.integ).map(x => x.toUpperCase()).join(' ')} INTEGRITY: ${p.integ.map(x => x.toUpperCase()).join(' ')} DH GROUP: ${p.group.map(g => DH_SHOW[g] || 'Group ' + g).join(' ')}${p.pqc ? ` PQC: ${p.pqc.algs.map(a => PQC_LABEL[a]).join(' ')}` : ''}`).join(' ');
+  const espDump = tsl => tsl.map((t, i) => { const e = espInfo(t.esp); return `Proposal ${i + 1}:  ENCRYPTION: ${e.encr}-${e.key}${e.hmac !== 'None' ? ' INTEGRITY: ' + e.hmac : ''} SEQUENCE: Don't use ESN`; }).join(' ');
   const EXCH = ['IKE_SA_INIT', 'IKE_INTERMEDIATE', 'IKE_AUTH', 'CREATE_CHILD_SA', 'CREATE_CHILD_SA_IKE_REKEY', 'INFORMATIONAL'];
   const DEFAULT_PROPOSAL = { enc: ['aes-cbc-256'], integ: ['sha512', 'sha384'], group: [19, 14, 21], prf: null, pqc: null };
   const DH_SHOW = { 14: 'DH_GROUP_2048_MODP/Group 14', 15: 'DH_GROUP_3072_MODP/Group 15', 16: 'DH_GROUP_4096_MODP/Group 16', 19: 'DH_GROUP_256_ECP/Group 19', 20: 'DH_GROUP_384_ECP/Group 20', 21: 'DH_GROUP_521_ECP/Group 21', 24: 'DH_GROUP_2048_256_MODP/Group 24' };
@@ -265,6 +269,8 @@
       this.seq = 0;
       this.ceCounter = 1000;
       this.sessionCounter = 0;
+      this.ikeSession = 86;   // IKEv2 debug SESSION IDs
+      this.negLog = [];       // every negotiation attempt, for tutorials/validators
       this.changeListeners = [];
       for (const k of this.order) this.devs[k] = this._makeDevice(k, topology.devices[k]);
       this._buildCommands();
@@ -278,7 +284,7 @@
         crypto: { fragMtu: null, proposals: {}, policies: {}, keyrings: {}, profiles: {}, tsets: {}, ipsecProfiles: {},
           // IKEv2 smart defaults (Cisco "Configuring IKEv2": default proposal/policy/IPsec profile/transform set)
           defaults: { proposal: true, policy: true, ipsecProfile: true, tset: true } },
-        debug: { ikev2: false }, arp: new Set(), bootAt: this.now() - (def.uptimeMin || 0) * 60000, lastChange: this.now(), stats: { inReq: 0, outReq: 0, inRej: 0, outRej: 0 },
+        debug: { ikev2: false, err: false }, arp: new Set(), bootAt: this.now() - (def.uptimeMin || 0) * 60000, lastChange: this.now(), stats: { inReq: 0, outReq: 0, inRej: 0, outRej: 0 },
         exch: {}, pqcSupport: def.pqcSupport !== false, version: def.version || '26.02.01',
       };
       for (const [n, cfg] of Object.entries(def.interfaces)) {
@@ -305,6 +311,12 @@
       this.logQueue.push({ dev: devKey, text: line, cls });
     }
     _debug(devKey, msg) { if (this.devs[devKey].debug.ikev2) this.logQueue.push({ dev: devKey, text: `${this._ts()}: ${msg}`, cls: 'debug' }); }
+    // `debug crypto ikev2 error` lines, worded as IOS XE 26.02 prints them (vpn-negotiation-mismatch-teaching dataset)
+    _dbgErr(devKey, sid, msg) {
+      const d = this.devs[devKey]; if (!d.debug.ikev2 && !d.debug.err) return;
+      this.logQueue.push({ dev: devKey, text: `${this._ts()}: IKEv2-ERROR:${sid == null ? '' : `(SESSION ID = ${sid},SA ID = 1):`}${msg}`, cls: 'debug' });
+    }
+    _saOf(st, devKey) { return st && st.sa && st.sa.half !== devKey ? st.sa : null; }
     drainLogs() { const q = this.logQueue; this.logQueue = []; return q; }
 
     /* ---------- L2 / interface state ---------- */
@@ -327,7 +339,7 @@
         case 'svi': { const v = +name.slice(4); return Object.values(d.ifaces).some(p => p.kind === 'phys' && p.vlan === v && this.portUp(devKey, p.name)); }
         case 'loopback': return true;
         case 'tunnel': {
-          if (i.tunnel.mode === 'ipsec ipv4') { const st = this._pairOf(devKey, name); return !!(st && st.state === 'up' && !st.sa.child.down); }
+          if (i.tunnel.mode === 'ipsec ipv4') { const st = this._pairOf(devKey, name); return !!(st && st.state === 'up' && this._saOf(st, devKey) && !st.sa.child.down); }
           return !!(this._srcIp(d, i) && i.tunnel.dest);
         }
       }
@@ -391,8 +403,9 @@
         return null;
       }
       if (e.kind === 'tunnel' && !opts.noTunnels) {
-        const st = this._pairOf(devKey, egress); if (!st || st.state !== 'up' || st.sa.child.down) return null;
+        const st = this._pairOf(devKey, egress); if (!st || st.state !== 'up' || !this._saOf(st, devKey) || st.sa.child.down) return null;
         const other = st.pair.a.dev === devKey ? st.pair.b : st.pair.a;
+        if (st.sa.half === other.dev) return null;   // half-open: the peer has no SA and drops the ESP packets
         const oi = this.devs[other.dev].ifaces[other.if];
         if (!oi) return null;   // point-to-point VTI: any next hop routed into it lands on the peer
         // underlay must still carry the ESP packets
@@ -486,7 +499,7 @@
       const TA = A.ifaces[pair.a.if], TB = B.ifaces[pair.b.if];
       const ipA = this._srcIp(A, TA), ipB = this._srcIp(B, TB);
       const trace = [];
-      const fail = (code, reason, side) => ({ ok: false, code, reason, side, trace, ipA, ipB });
+      const fail = (code, reason, side, extra = {}) => ({ ok: false, code, reason, side, trace, ipA, ipB, stage: 'init', ...extra });
       trace.push(`IKE_SA_INIT request ${ipA} → ${ipB}`);
       if (!this.forward(A.key, ipB, { noTunnels: true }).ok) return fail('PEER_UNREACHABLE', `${A.hostname} has no route to the tunnel destination ${ipB}. Check the underlay (ip route) — IKE packets never reach the peer.`, 'a');
       if (!this.forward(B.key, ipA, { noTunnels: true }).ok) return fail('PEER_UNREACHABLE', `${B.hostname} cannot route back to ${ipA}. Check the underlay (ip route) on ${B.hostname}.`, 'b');
@@ -510,59 +523,76 @@
       let chosen = null;
       for (const pa of propsA) { for (const pb of propsB) { const m = this._matchProposal(pa, pb); if (m) { chosen = { ...m, propA: pa.name, propB: pb.name, pqcModeA: pa.pqc && pa.pqc.mode, pqcModeB: pb.pqc && pb.pqc.mode }; break; } } if (chosen) break; }
       if (!chosen) {
+        // classical algorithms overlap → the mismatch is ML-KEM (required vs none, or different parameter sets)
+        const strip = p => ({ ...p, pqc: null });
+        const classicalOk = propsA.some(pa => propsB.some(pb => this._matchProposal(strip(pa), strip(pb))));
         const reqA = propsA.some(p => p.pqc && p.pqc.mode === 'required'), reqB = propsB.some(p => p.pqc && p.pqc.mode === 'required');
-        const why = (reqA || reqB) ? ` ${reqA ? A.hostname : B.hostname} requires ML-KEM but ${reqA ? B.hostname : A.hostname} does not offer it.` : ' Encryption, integrity and DH group must overlap.';
-        return fail('NO_PROPOSAL_CHOSEN', `No matching IKEv2 proposal between ${A.hostname} and ${B.hostname}.${why}`, 'b');
+        const algs = ps => [...new Set(ps.flatMap(p => p.pqc ? p.pqc.algs : []))];
+        const aA = algs(propsA), aB = algs(propsB);
+        let why;
+        if (!classicalOk) {
+          const d = ['enc', 'integ', 'group'].filter(f => !propsA.some(pa => propsB.some(pb => (f === 'integ' && pa.enc.concat(pb.enc).every(e => e.includes('gcm'))) || pa[f].some(x => pb[f].includes(x)))));
+          why = ` No common ${d.map(f => ({ enc: 'encryption', integ: 'integrity', group: 'DH group' })[f]).join(', ') || 'combination of encryption, integrity and DH group'}.`;
+        } else if (aA.length && aB.length) why = ` ML-KEM parameter sets differ (${A.hostname}: ${aA.map(x => PQC_LABEL[x]).join(' ')}; ${B.hostname}: ${aB.map(x => PQC_LABEL[x]).join(' ')}).`;
+        else why = ` ${reqA ? A.hostname : B.hostname} requires ML-KEM but ${reqA ? B.hostname : A.hostname} does not offer it.`;
+        return fail('NO_PROPOSAL_CHOSEN', `No matching IKEv2 proposal between ${A.hostname} and ${B.hostname}.${why}`, 'b', { mlkem: classicalOk, recv: propsA, exp: propsB });
       }
+      // the initiator's KE payload uses the first DH group of its first proposal; a different choice costs one INVALID_KE_PAYLOAD round trip
+      const keGroup = propsA[0].group[0];
+      if (chosen.group !== keGroup) { chosen.keRetry = keGroup; trace.push(`IKE_SA_INIT: KE payload for group ${keGroup}, responder selected group ${chosen.group} → INVALID_KE_PAYLOAD, initiator retries with group ${chosen.group}`); }
       trace.push(`IKE_SA_INIT response: proposal ${chosen.propB} selected (${chosen.enc}/${chosen.integ || 'AEAD'}/DH ${chosen.group}${chosen.pqc ? ' + ' + PQC_LABEL[chosen.pqc] : ''})`);
       if (chosen.pqc) {
         const fr = A.crypto.fragMtu && B.crypto.fragMtu;
         trace.push(`IKE_INTERMEDIATE: ${PQC_LABEL[chosen.pqc]} encapsulation key ${MLKEM_SIZES[chosen.pqc][0]} B → ciphertext ${MLKEM_SIZES[chosen.pqc][1]} B (${fr ? `IKEv2 fragmentation, MTU ${Math.min(A.crypto.fragMtu, B.crypto.fragMtu) - 28}` : 'no IKEv2 fragmentation — large messages rely on IP fragmentation'})`);
       }
       // identities / profiles
-      if (!this._profileMatches(sb.prof, ipA)) return fail('NO_PROFILE', `${B.hostname}: IKEv2 profile "${sb.ips.ikev2Profile}" has no "match identity remote address ${ipA}" — the initiator's identity is not accepted.`, 'b');
-      if (!this._profileMatches(sa.prof, ipB)) return fail('NO_PROFILE', `${A.hostname}: IKEv2 profile "${sa.ips.ikev2Profile}" has no "match identity remote address ${ipB}".`, 'a');
+      // identities. The responder checks the initiator's identity BEFORE it answers IKE_AUTH; the initiator checks
+      // the responder's identity AFTER the responder has already installed its SAs. Observed on IOS XE (dataset C8):
+      // an initiator whose profile does not match the peer leaves a HALF-OPEN tunnel — the responder is READY and
+      // encrypts, the initiator has no SA and drops the ESP packets (%CRYPTO-4-RECVD_PKT_INV_SPI).
+      if (!this._profileMatches(sb.prof, ipA)) return fail('NO_PROFILE', `${B.hostname}: no IKEv2 profile matches the initiator's identity ${ipA} ("match identity remote address" in profile "${sb.ips.ikev2Profile}"). IKE_AUTH fails and no SA is created.`, 'b', { stage: 'auth' });
+      const half = !this._profileMatches(sa.prof, ipB);
+      if (half) trace.push(`IKE_AUTH: ${A.hostname} (initiator) finds no IKEv2 profile matching ${ipB} after ${B.hostname} has installed its SAs → half-open: ${B.hostname} READY, ${A.hostname} none`);
       // authentication (PSK)
       // keys: inline `authentication local|remote pre-share key X` wins over the keyring
       const keys = {};
       for (const x of side) {
-        if (x.prof.authLocal !== 'pre-share' || x.prof.authRemote !== 'pre-share') return fail('AUTH_CONFIG', `${x.D.hostname}: IKEv2 profile "${x.ips.ikev2Profile}" needs "authentication local pre-share" and "authentication remote pre-share".`, x.s);
+        if (x.prof.authLocal !== 'pre-share' || x.prof.authRemote !== 'pre-share') return fail('AUTH_CONFIG', `${x.D.hostname}: IKEv2 profile "${x.ips.ikev2Profile}" needs "authentication local pre-share" and "authentication remote pre-share".`, x.s, { stage: 'auth' });
         const pk = x.prof.keyringLocal ? this._keyringPeer(x.D, x.prof.keyringLocal, x.peerIp) : null;
         // keyring peer: `pre-shared-key X` (both directions) or asymmetric `pre-shared-key local X` / `remote Y`
         const kLocal = x.prof.authLocalKey || (pk && (pk.pskLocal || pk.psk)), kRemote = x.prof.authRemoteKey || (pk && (pk.pskRemote || pk.psk));
         if (!kLocal || !kRemote) {
-          if (!x.prof.keyringLocal || !x.D.crypto.keyrings[x.prof.keyringLocal]) return fail('AUTH_CONFIG', `${x.D.hostname}: IKEv2 profile "${x.ips.ikev2Profile}" has neither a valid "keyring local" nor inline "pre-share key" values.`, x.s);
-          return fail('AUTHENTICATION_FAILED', `${x.D.hostname}: keyring "${x.prof.keyringLocal}" has no peer with address ${x.peerIp} and a pre-shared-key.`, x.s);
+          if (!x.prof.keyringLocal || !x.D.crypto.keyrings[x.prof.keyringLocal]) return fail('AUTH_CONFIG', `${x.D.hostname}: IKEv2 profile "${x.ips.ikev2Profile}" has neither a valid "keyring local" nor inline "pre-share key" values.`, x.s, { stage: 'auth' });
+          return fail('AUTHENTICATION_FAILED', `${x.D.hostname}: keyring "${x.prof.keyringLocal}" has no peer with address ${x.peerIp} and a pre-shared-key.`, x.s, { stage: 'auth' });
         }
         keys[x.s] = { local: kLocal, remote: kRemote };
       }
-      if (keys.a.local !== keys.b.remote || keys.b.local !== keys.a.remote) return fail('AUTHENTICATION_FAILED', `Pre-shared keys differ between ${A.hostname} and ${B.hostname} — IKE_AUTH fails.`, 'b');
+      if (keys.a.local !== keys.b.remote || keys.b.local !== keys.a.remote) return fail('AUTHENTICATION_FAILED', `Pre-shared keys differ between ${A.hostname} and ${B.hostname} — IKE_AUTH fails.`, 'b', { stage: 'auth' });
       // PPK (RFC 8784)
       const ppkA = sa.prof.keyringPpk ? (this._keyringPeer(A, sa.prof.keyringPpk, ipB) || {}).ppk : null;
       const ppkB = sb.prof.keyringPpk ? (this._keyringPeer(B, sb.prof.keyringPpk, ipA) || {}).ppk : null;
       let ppk = null;
       if (ppkA && ppkB && ppkA.id === ppkB.id) {
-        if (ppkA.key !== ppkB.key) return fail('AUTHENTICATION_FAILED', `PPK "${ppkA.id}" has a different key on ${A.hostname} and ${B.hostname}; the AUTH payloads do not verify.`, 'b');
+        if (ppkA.key !== ppkB.key) return fail('AUTHENTICATION_FAILED', `PPK "${ppkA.id}" has a different key on ${A.hostname} and ${B.hostname}; the AUTH payloads do not verify.`, 'b', { stage: 'auth' });
         ppk = ppkA.id;
       } else if ((ppkA && ppkA.required) || (ppkB && ppkB.required)) {
         const who = ppkA && ppkA.required ? A.hostname : B.hostname;
-        return fail('PPK_REQUIRED', `${who} requires a PPK but no matching PPK (same id and key, and "keyring ppk" in the IKEv2 profile) exists on both peers.`, ppkA && ppkA.required ? 'a' : 'b');
+        return fail('PPK_REQUIRED', `${who} requires a PPK but no matching PPK (same id and key, and "keyring ppk" in the IKEv2 profile) exists on both peers.`, ppkA && ppkA.required ? 'a' : 'b', { stage: 'auth' });
       }
       trace.push(`IKE_AUTH: PSK authentication OK${ppk ? `, PPK "${ppk}" mixed into SK_d/SK_pi/SK_pr` : ''}`);
-      // child SA
-      // child SA: first transform set in the initiator's list that the responder also has
-      // RFC 7296: a Child SA failure inside IKE_AUTH does not tear down the IKE SA —
-      // the classic "phase 1 up, no traffic" situation.
+      // child SA: first transform set in the initiator's list that the responder also has.
+      // Observed on IOS XE (dataset C6): when the first Child SA fails inside IKE_AUTH, IOS deletes the IKE SA too.
       const tsA = sa.tsl.find(x => sb.tsl.some(y => y.esp === x.esp && y.mode === x.mode));
       const tsB = tsA && sb.tsl.find(y => y.esp === tsA.esp && y.mode === tsA.mode);
-      let childErr = null;
+      const childErr = null;
       if (!tsA) {
-        childErr = `NO_PROPOSAL_CHOSEN for the Child SA: no IPsec transform set in common (${A.hostname}: ${sa.tsl.map(x => x.esp).join(', ')}; ${B.hostname}: ${sb.tsl.map(x => x.esp).join(', ')}). The IKE SA is READY, but no IPsec SA exists, so no traffic passes.`;
-        trace.push('CHILD_SA: ✕ NO_PROPOSAL_CHOSEN (transform sets) — IKE SA kept, no IPsec SA');
-      } else trace.push(`CHILD_SA: ${tsA.esp} ${tsA.mode} mode (${A.hostname} ${tsA.name} / ${B.hostname} ${tsB.name})`);
+        trace.push('CHILD_SA: ✕ NO_PROPOSAL_CHOSEN (transform sets) — IOS deletes the IKE SA as well');
+        return fail('NO_PROPOSAL_CHOSEN', `No common IPsec transform set (${A.hostname}: ${sa.tsl.map(x => x.esp).join(', ')}; ${B.hostname}: ${sb.tsl.map(x => x.esp).join(', ')}). The Child SA is negotiated inside IKE_AUTH; when it fails, IOS deletes the IKE SA too, so no SA remains.`, 'b', { stage: 'child', recvEsp: sa.tsl, half });
+      }
+      trace.push(`CHILD_SA: ${tsA.esp} ${tsA.mode} mode (${A.hostname} ${tsA.name} / ${B.hostname} ${tsB.name})`);
       const frag = !!(A.crypto.fragMtu && B.crypto.fragMtu);
       return {
-        ok: true, trace, ipA, ipB, childErr,
+        ok: true, trace, ipA, ipB, childErr, half,
         params: {
           ...chosen, ppk, frag, fragMtu: frag ? Math.min(A.crypto.fragMtu, B.crypto.fragMtu) : null,
           profA: sa.ips.ikev2Profile, profB: sb.ips.ikev2Profile, ipsecA: sa.T.tunnel.protection, ipsecB: sb.T.tunnel.protection,
@@ -579,19 +609,34 @@
     }
     _attempt(st) {
       const now = this.now();
-      const { a, b } = st.pair;
+      // the side that cleared the SA or sent the traffic initiates; otherwise the first router in the pair
+      const iniDev = st.initBy === st.pair.b.dev ? st.pair.b.dev : st.pair.a.dev;
+      const role = iniDev === st.pair.a.dev ? st.pair : { a: st.pair.b, b: st.pair.a };
+      const { a, b } = role;
       this.devs[a.dev].stats.outReq++; this.devs[b.dev].stats.inReq++;
-      const r = this._negotiate(st.pair);
+      const r = this._negotiate(role);
+      const sidA = ++this.ikeSession, sidB = ++this.ikeSession;
       // exchange counters (show crypto ikev2 stats exchange)
+      if (r.ok && r.params.keRetry) {   // first IKE_SA_INIT answered with INVALID_KE_PAYLOAD
+        this._exchange(a.dev, b.dev, 'IKE_SA_INIT'); this._ex(b.dev, 'INVALID_KE_PAYLOAD', 1); this._ex(a.dev, 'INVALID_KE_PAYLOAD', 3);
+        for (const nt of ['NAT_DETECTION_SOURCE_IP', 'NAT_DETECTION_DESTINATION_IP']) this._ex(a.dev, nt, 0);
+        this._dbgErr(b.dev, sidB, ": The peer's KE payload contained the wrong DH group");
+        this._dbgErr(b.dev, sidB, 'Initial exchange failed: Initial exchange failed');
+      }
       this._exchange(a.dev, b.dev, 'IKE_SA_INIT');
       for (const nt of ['NAT_DETECTION_SOURCE_IP', 'NAT_DETECTION_DESTINATION_IP']) { this._exchange(a.dev, b.dev, nt); }
-      if (r.ok || !['PEER_UNREACHABLE', 'NO_POLICY', 'NO_PROPOSAL_CHOSEN', 'CONFIG'].includes(r.code)) {
+      if (r.ok || r.stage === 'auth' || r.stage === 'child') {
         if (r.params && r.params.pqc) this._exchange(a.dev, b.dev, 'IKE_INTERMEDIATE');
         this._exchange(a.dev, b.dev, 'IKE_AUTH');
         this._ex(a.dev, 'INITIAL_CONTACT', 0); this._ex(b.dev, 'INITIAL_CONTACT', 2); this._ex(a.dev, 'CFG_REQUEST', 0); this._ex(b.dev, 'CFG_REQUEST', 1);
         if (r.code === 'AUTHENTICATION_FAILED') { this._ex(b.dev, 'AUTHENTICATION_FAILED', 1); this._ex(a.dev, 'AUTHENTICATION_FAILED', 3); }
       }
       if (r.code === 'NO_PROPOSAL_CHOSEN') { this._ex(b.dev, 'NO_PROPOSAL_CHOSEN', 1); this._ex(a.dev, 'NO_PROPOSAL_CHOSEN', 3); }
+      this._negErrors(r, a.dev, b.dev, r.params && r.params.keRetry ? ++this.ikeSession : sidB, sidA, st);
+      this.negLog.push({ seq: this.seq, at: now, key: st.key, ini: a.dev, resp: b.dev, ok: r.ok, code: r.ok ? null : r.code, stage: r.stage || null,
+        keRetry: !!(r.ok && r.params.keRetry), half: !!(r.ok && r.half), pqc: r.ok ? r.params.pqc : null, mlkem: !!r.mlkem, reason: r.reason || null,
+        pqcModes: [a.dev, b.dev].map(k => { const p = this._policyProposals(this.devs[k]).find(x => x.pqc); return p ? p.pqc.mode : null; }) });
+      if (this.negLog.length > 200) this.negLog.shift();
       for (const line of r.trace) { this._debug(a.dev, 'IKEv2: ' + line); this._debug(b.dev, 'IKEv2: ' + line); }
       st.lastAttempt = { at: now, ...r };
       if (!r.ok) {
@@ -600,12 +645,13 @@
           this._debug(a.dev, `IKEv2: ERROR: ${r.code}: ${r.reason}`); this._debug(b.dev, `IKEv2: ERROR: ${r.code}: ${r.reason}`);
         }
         st.state = 'fail'; st.err = r.reason; st.code = r.code; st.retryAt = now + RETRY_MS;
+        st.initBy = b.dev;   // both tunnel ends keep trying: the next attempt comes from the other side (dataset C1–C3: TX(REQ) on both)
         return false;
       }
       const ids = { [a.dev]: this._freeTunnelId(a.dev) };
       ids[b.dev] = this._freeTunnelId(b.dev);
       st.sa = {
-        ids, initiator: a.dev, ip: { [a.dev]: r.ipA, [b.dev]: r.ipB }, peerIp: { [a.dev]: r.ipB, [b.dev]: r.ipA },
+        ids, initiator: a.dev, half: r.half ? a.dev : null, ip: { [a.dev]: r.ipA, [b.dev]: r.ipB }, peerIp: { [a.dev]: r.ipB, [b.dev]: r.ipA },
         params: r.params, establishedAt: now, ceId: ++this.ceCounter, sessionId: ++this.sessionCounter, cryptoSessionId: 76 + this.sessionCounter,
         spi: { [a.dev]: hex(16), [b.dev]: hex(16) }, espSpi: { [a.dev]: '0x' + hex(8), [b.dev]: '0x' + hex(8) },
         counters: { [a.dev]: { encaps: 0, decaps: 0 }, [b.dev]: { encaps: 0, decaps: 0 } }, trace: r.trace,
@@ -616,12 +662,42 @@
       // the IKE packets themselves resolved ARP on every underlay hop, in both directions
       for (const [from, to] of [[a.dev, r.ipB], [b.dev, r.ipA]]) for (const h of this.forward(from, to, { noTunnels: true }).hops) if (h.via === 'link') this.devs[h.from].arp.add(`${h.from}>${h.nh}`);
       for (const [me, other] of [[a, b], [b, a]]) {
+        if (st.sa.half === me.dev) continue;   // half-open: the responder never brings its tunnel up
         const peer = st.sa.peerIp[me.dev];
         this._debug(me.dev, `IKEv2: SA established with ${peer}`);
         this._log(me.dev, `%CRYPTO-5-IKEV2_SESSION_STATUS: Crypto tunnel v2 is UP.  Peer ${peer}:500       Id: ${peer}`);
         this._log(me.dev, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${me.if}, changed state to up`);
       }
       return true;
+    }
+    // `debug crypto ikev2 error` output per outcome (dataset C0–C8, M1–M4); config-exchange noise included, as on IOS
+    _negErrors(r, ini, resp, sidR, sidI) {
+      const noise = (dev, sid) => { this._dbgErr(dev, sid, '% IKEv2 profile not found'); this._dbgErr(dev, null, 'Error constructing config reply'); };
+      if (r.ok) {
+        if (r.half) { this._dbgErr(ini, sidI, ': Failed to locate an item in the database'); this._dbgErr(ini, sidI, ': Auth exchange failed'); noise(resp, sidR); }
+        else noise(resp, sidR);
+        return;
+      }
+      if (r.code === 'NO_PROPOSAL_CHOSEN' && r.stage === 'init') {
+        if (!r.mlkem) {
+          this._dbgErr(resp, sidR, `Received Policies: : Failed to find a matching policy${policyDump(r.recv)}`);
+          this._dbgErr(resp, sidR, `Expected Policies: : Failed to find a matching policy${policyDump(r.exp)}`);
+        }
+        this._dbgErr(resp, sidR, ': Failed to find a matching policy');
+        this._dbgErr(resp, sidR, 'Initial exchange failed: Initial exchange failed');
+        this._dbgErr(ini, sidI, ': Received no proposal chosen notify');
+        this._dbgErr(ini, sidI, 'Initial exchange failed: Initial exchange failed');
+      } else if (r.stage === 'child') {
+        this._dbgErr(resp, sidR, '% IKEv2 profile not found');
+        this._dbgErr(resp, sidR, `Received Policies: : Failed to find a matching policyESP: ${espDump(r.recvEsp)}`);
+        this._dbgErr(resp, sidR, ': Failed to find a matching policy');
+      } else if (r.code === 'AUTHENTICATION_FAILED' || r.code === 'PPK_REQUIRED') {
+        this._dbgErr(ini, sidI, ': Auth exchange failed'); this._dbgErr(ini, sidI, ': Failed to authenticate the IKE SA');
+        this._dbgErr(resp, sidR, '% IKEv2 profile not found'); this._dbgErr(resp, sidR, ': Failed to authenticate the IKE SA'); this._dbgErr(resp, sidR, ': Auth exchange failed');
+      } else if (r.code === 'NO_PROFILE') {   // responder has no profile for the initiator
+        this._dbgErr(resp, sidR, '% IKEv2 profile not found'); this._dbgErr(resp, sidR, ': Auth exchange failed');
+        this._dbgErr(ini, sidI, ': Auth exchange failed');
+      }
     }
     /* ---------- IPsec PFS (CREATE_CHILD_SA) ----------
        Outcome table from the IOS XE PQC configuration guide (Table 1).
@@ -669,6 +745,7 @@
     _teardown(st, why) {
       if (!st.sa) return;
       for (const me of [st.pair.a, st.pair.b]) {
+        if (st.sa.half === me.dev) continue;
         const peer = st.sa.peerIp[me.dev];
         this._log(me.dev, `%CRYPTO-5-IKEV2_SESSION_STATUS: Crypto tunnel v2 is DOWN. Peer ${peer}:500       Id: ${peer}`);
         if (this.devs[me.dev].ifaces[me.if]) this._log(me.dev, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${me.if}, changed state to down`);
@@ -688,7 +765,15 @@
         let st = this.pairState.get(key);
         if (!st) { st = { key, pair, state: 'neg', since: now, sa: null }; this.pairState.set(key, st); }
         st.pair = pair;
-        if (st.state === 'up') { const c = st.sa.child; if (c.down && now >= c.retryAt) this._rekeyChild(st, c.init); continue; }
+        if (st.state === 'up') {
+          const c = st.sa.child; if (c.down && now >= c.retryAt) this._rekeyChild(st, c.init);
+          if (st.sa.half && st.sa.probeAt && now >= st.sa.probeAt) {   // the responder never had this IKE SA
+            const lost = st.sa.half, owner = st.pair.a.dev === lost ? st.pair.b.dev : st.pair.a.dev; st.sa.probeAt = null;
+            this._ex(owner, 'INFORMATIONAL', 0); this._ex(lost, 'INFORMATIONAL', 6);
+            this._dbgErr(lost, null, "Couldn't find matching SA: Detected an invalid IKE SPI"); this._dbgErr(lost, null, ': A supplied parameter is incorrect');
+          }
+          continue;
+        }
         const due = (st.state === 'neg' && now - st.since >= NEG_DELAY_MS) || (st.state === 'fail' && now >= st.retryAt);
         if (due || (opts.force && opts.force(st))) this._attempt(st);
       }
@@ -705,7 +790,7 @@
       for (const st of this.pairState.values()) {
         if (st.pair.a.dev !== devKey && st.pair.b.dev !== devKey) continue;
         if (st.sa) this._teardown(st, { by: devKey });
-        st.state = 'neg'; st.since = this.now();
+        st.state = 'neg'; st.since = this.now(); st.initBy = devKey;
       }
     }
 
@@ -713,7 +798,7 @@
     tunnels() {
       return [...this.pairState.values()].map(st => ({
         key: st.key, a: st.pair.a, b: st.pair.b, state: st.state, err: st.err, code: st.code,
-        params: st.sa ? st.sa.params : null, sa: st.sa, lastAttempt: st.lastAttempt || null,
+        params: st.sa ? st.sa.params : null, sa: st.sa, lastAttempt: st.lastAttempt || null, half: st.sa ? st.sa.half : null,
       }));
     }
     halfTunnels() {
@@ -728,7 +813,7 @@
     saBetween(x, y) {
       for (const st of this.pairState.values()) {
         const s = [st.pair.a.dev, st.pair.b.dev];
-        if (s.includes(x) && s.includes(y) && st.state === 'up') return { ...st.sa, a: st.pair.a, b: st.pair.b, key: st.key };
+        if (s.includes(x) && s.includes(y) && st.state === 'up' && !st.sa.half) return { ...st.sa, a: st.pair.a, b: st.pair.b, key: st.key };
       }
       return null;
     }
@@ -899,7 +984,7 @@
     }
     _saLines(devKey, st, me, detailed) {
       const d = this.devs[devKey], t = d.ifaces[me.if], out = [];
-      if (!st.sa) {
+      if (!this._saOf(st, devKey)) {
         const local = this._srcIp(d, t), remote = t.tunnel.dest;
         out.push(`${String(this._freeTunnelId(devKey)).padEnd(10)}${(local + '/500').padEnd(22)}${(remote + '/500').padEnd(22)}${'none/none'.padEnd(21)}IN-NEG`);
         out.push('      Encr: Unknown - 0, PRF: Unknown - 0, Hash: None, DH Grp:0, Auth sign: Unknown - 0, Auth verify: Unknown - 0');
@@ -908,7 +993,7 @@
       }
       const sa = st.sa, p = sa.params, init = sa.initiator === devKey;
       const age = Math.max(1, Math.floor((this.now() - sa.establishedAt) / 1000));
-      const peer = init ? st.pair.b.dev : st.pair.a.dev;
+      const peer = st.pair.a.dev === devKey ? st.pair.b.dev : st.pair.a.dev;
       out.push(`${String(sa.ids[devKey]).padEnd(10)}${(sa.ip[devKey] + '/500').padEnd(22)}${(sa.peerIp[devKey] + '/500').padEnd(22)}${'none/none'.padEnd(21)}READY`);
       out.push(`      Encr: ${ENC_LABEL[p.enc]}, PRF: ${p.prf.toUpperCase()}, Hash: ${p.integ ? p.integ.toUpperCase() : 'None'}, DH Grp:${p.group}, Auth sign: PSK, Auth verify: PSK${p.ppk ? ', QR' : ''}`);
       if (p.pqc) out.push(`      PQC Key Exchange: ${PQC_LABEL[p.pqc]}`);
@@ -932,7 +1017,8 @@
         `      Initiator of SA : ${init ? 'Yes' : 'No'}`, '      PEER TYPE: IOS-XE');
       return out;
     }
-    _saRows(devKey) { return this._upSAs(devKey).filter(x => x.st.sa || x.st.state === 'neg' || x.st.state === 'fail'); }
+    // failed negotiations leave nothing in `show crypto ikev2 sa` (dataset C1–C7); IN-NEG only while negotiating
+    _saRows(devKey) { return this._upSAs(devKey).filter(x => this._saOf(x.st, devKey) || x.st.state === 'neg'); }
     _showIkev2Sa(devKey, detailed) {
       const rows = this._saRows(devKey);
       if (!rows.length) return [];
@@ -942,11 +1028,11 @@
       return out;
     }
     _showIkev2Session(devKey, detailed) {
-      const rows = this._saRows(devKey).filter(x => x.st.sa);
+      const rows = this._saRows(devKey).filter(x => this._saOf(x.st, devKey));
       if (!rows.length) return [];
       const out = [' IPv4 Crypto IKEv2 Session', ''];
       rows.forEach(({ st, me }, i) => {
-        const sa = st.sa, peer = sa.initiator === devKey ? st.pair.b.dev : st.pair.a.dev, child = !sa.child.down;
+        const sa = st.sa, peer = st.pair.a.dev === devKey ? st.pair.b.dev : st.pair.a.dev, child = !sa.child.down;
         if (i) out.push('');
         out.push(`Session-id:${sa.sessionId}, Status:UP-ACTIVE, IKE count:1, CHILD count:${child ? 1 : 0}`, '',
           'Tunnel-id Local                 Remote                fvrf/ivrf            Status', ...this._saLines(devKey, st, me, detailed));
@@ -961,7 +1047,7 @@
       return out;
     }
     _showIkev2Stats(devKey) {
-      const d = this.devs[devKey]; const rows = this._upSAs(devKey).filter(x => x.st.sa);
+      const d = this.devs[devKey]; const rows = this._upSAs(devKey).filter(x => this._saOf(x.st, devKey));
       const outg = rows.filter(x => x.st.sa.initiator === devKey).length, inc = rows.length - outg;
       const negIn = this._upSAs(devKey).filter(x => !x.st.sa && x.st.pair.b.dev === devKey).length, negOut = this._upSAs(devKey).filter(x => !x.st.sa && x.st.pair.a.dev === devKey).length;
       const qr = rows.filter(x => x.st.sa.params.ppk || x.st.sa.params.pqc).length, ppk = rows.filter(x => x.st.sa.params.ppk).length;
@@ -996,7 +1082,7 @@
       const cfg = e.CFG_REQUEST && e.CFG_REQUEST.some(Boolean);
       return [dash, 'EXCHANGE/NOTIFY                   TX(REQ)    TX(RES)    RX(REQ)    RX(RES)   RTX(REQ)   RTX(RES)   RRX(REQ)   RRX(RES)',
         ...sect('EXCHANGES', EXCH),
-        ...sect('ERROR NOTIFY', ['NO_PROPOSAL_CHOSEN', 'AUTHENTICATION_FAILED']),
+        ...sect('ERROR NOTIFY', ['NO_PROPOSAL_CHOSEN', 'INVALID_KE_PAYLOAD', 'AUTHENTICATION_FAILED']),
         ...sect('OTHER NOTIFY', ['INITIAL_CONTACT', 'SET_WINDOW_SIZE', 'NAT_DETECTION_SOURCE_IP', 'NAT_DETECTION_DESTINATION_IP', 'HTTP_CERT_LOOKUP_SUPPORTED', 'DELETE_REASON', 'USE_PPK', 'PPK_IDENTITY', 'SIGNATURE_HASH_ALGORITHMS_NOTI']),
         ...(cfg ? ['', '', 'CONFIG PAYLOAD TYPE                    TX         RX        RTX        RRX', '', row('CFG_REQUEST', e.CFG_REQUEST.slice(0, 4))] : []),
         '', '', 'OTHER COUNTERS                         TX        RTX', '', row('NO_NAT', [(e.IKE_SA_INIT || [0])[0] + (e.IKE_AUTH || [0])[0], 0]), dash];
@@ -1004,7 +1090,7 @@
     _showIpsecSa(devKey, detail) {
       const d = this.devs[devKey]; const out = [];
       for (const t of Object.values(d.ifaces).filter(i => i.kind === 'tunnel' && i.tunnel.protection).sort((a, b) => ifSort(a.name, b.name))) {
-        const st = this._pairOf(devKey, t.name); const sa = st && st.sa && !st.sa.child.down ? st.sa : null;
+        const st = this._pairOf(devKey, t.name); const sa = this._saOf(st, devKey) && !st.sa.child.down ? st.sa : null;
         const c = sa ? sa.counters[devKey] : { encaps: 0, decaps: 0 };
         const local = this._srcIp(d, t) || '0.0.0.0', init = sa && sa.initiator === devKey;
         const peer = sa && (devKey === st.pair.a.dev ? st.pair.b.dev : st.pair.a.dev);
@@ -1042,17 +1128,22 @@
       if (detail) out.push('Code: C - IKE Configuration mode, D - Dead Peer Detection', 'K - Keepalives, N - NAT-traversal, T - cTCP encapsulation', 'X - IKE Extended Authentication, F - IKE Fragmentation',
         'R - IKE Auto Reconnect, U - IKE Dynamic Route Update', 'S - SIP VPN, E - Stronger IKE Encryption Enforced', 'Q - Quantum-safe Encryption', '');
       tuns.forEach((t, k) => {
-        const st = this._pairOf(devKey, t.name); const sa = st && st.sa; const child = sa && !sa.child.down;
+        const st = this._pairOf(devKey, t.name); const sa = this._saOf(st, devKey); const child = sa && !sa.child.down;
         const prof = (d.crypto.ipsecProfiles[t.tunnel.protection] || {}).ikev2Profile || '';
         const age = sa ? Math.floor((this.now() - sa.establishedAt) / 1000) : 0;
         if (k) out.push('');
         out.push(`Interface: ${t.name}`);
+        // a DOWN session has no profile line and no IKEv2 SA line (dataset C1, C6, C8 responder)
+        if (!sa) {
+          out.push(`Session status: ${st && st.state === 'neg' ? 'DOWN-NEGOTIATING' : 'DOWN'}`, `Peer: ${t.tunnel.dest} port 500${detail ? ' fvrf: (none) ivrf: (none)' : ''}`,
+            '  IPSEC FLOW: permit ip   0.0.0.0/0.0.0.0 0.0.0.0/0.0.0.0', '        Active SAs: 0, origin: crypto map');
+          return;
+        }
         if (prof) out.push(`Profile: ${prof}`);
-        if (sa && detail) out.push(`Uptime: ${hms(age)}`);
-        out.push(`Session status: ${sa ? 'UP-ACTIVE' : 'DOWN-NEGOTIATING'}`);
+        if (detail) out.push(`Uptime: ${hms(age)}`);
+        out.push('Session status: UP-ACTIVE');
         out.push(`Peer: ${t.tunnel.dest} port 500${detail ? ' fvrf: (none) ivrf: (none)' : ''}`);
-        if (detail && sa) out.push(`      Phase1_id: ${t.tunnel.dest}`, '      Desc: (none)');
-        if (!sa) { out.push('  IKEv2 SA: none'); return; }
+        if (detail) out.push(`      Phase1_id: ${t.tunnel.dest}`, '      Desc: (none)');
         const p = sa.params, caps = (p.frag ? 'F' : '') + 'U' + (p.pqc || p.ppk ? 'Q' : '');
         out.push(`  Session ID: ${sa.cryptoSessionId}`, `  IKEv2 SA: local ${sa.ip[devKey]}/500 remote ${sa.peerIp[devKey]}/500 Active`);
         if (detail) out.push(`          Capabilities:${caps} connid:${sa.ids[devKey]} lifetime:${hms(Math.max(0, p.lifetime - age))}`);
@@ -1248,11 +1339,22 @@
         out.push(`Packet sent with a source address of ${srcIp} `);
       }
       // traffic triggers any pending IKE negotiation immediately
+      for (const s of this.pairState.values()) if ((s.state === 'neg' || s.state === 'fail') && (s.pair.a.dev === devKey || s.pair.b.dev === devKey)) s.initBy = devKey;
       const before = new Set([...this.pairState.values()].filter(s => s.state === 'up').map(s => s.key));
       this.reconcile({ force: st => st.state === 'neg' || st.state === 'fail' });
       const fresh = [...this.pairState.values()].filter(s => s.state === 'up' && !before.has(s.key));
       const r = this.lookup(devKey, dst);
       if (!srcIp && r) srcIp = d.ifaces[r.iface].ip;
+      // half-open tunnel (dataset C8): we encrypt, the peer has no SA and drops the packets with RECVD_PKT_INV_SPI
+      const ht = r && d.ifaces[r.iface] && d.ifaces[r.iface].kind === 'tunnel' && this._pairOf(devKey, r.iface);
+      if (ht && ht.sa && ht.sa.half && ht.sa.half !== devKey && !ht.sa.child.down) {
+        const other = ht.pair.a.dev === devKey ? ht.pair.b : ht.pair.a, ti = d.ifaces[r.iface];
+        ht.sa.counters[devKey].encaps += count; if (ti.cnt) { ti.cnt.outP += count; ti.cnt.outB += count * 100; ti.cnt.last = this.now(); }
+        if (!ht.sa.probeAt) ht.sa.probeAt = this.now() + 30000;   // no inbound traffic → IKE liveness check ~30 s later
+        this._log(other.dev, `%CRYPTO-4-RECVD_PKT_INV_SPI: decaps: rec'd IPSEC packet has invalid spi for destaddr=${ht.sa.peerIp[devKey]}, prot=50, spi=${spiLong(ht.sa.espSpi[other.dev])}, srcaddr=${ht.sa.ip[devKey]}, input interface=${other.if}`);
+        out.push('.'.repeat(count), `Success rate is 0 percent (0/${count})`);
+        return { lines: out, ok: false, succ: 0, count, path: { fwd: [{ from: devKey, to: other.dev, via: 'tunnel', key: ht.key, egress: r.iface, ingress: other.if }], back: [] }, srcIp: srcIp || ti.ip, lost: count, half: true };
+      }
       const fwd = r ? this.forward(devKey, dst) : { ok: false, hops: [] };
       const back = fwd.ok ? this.forward(fwd.end, srcIp) : { ok: false };
       const ok = fwd.ok && back.ok && (!opts.source || this.owns(devKey, srcIp));
@@ -1304,6 +1406,13 @@
         else { d.mode = 'config'; d.ctx = {}; }
         return [];
       };
+      const showProposals = (d, only) => {
+          const blk = (n, p) => [` IKEv2 proposal: ${n}`, `     Encryption : ${p.enc.map(e => e.toUpperCase()).join(' ')}`, `     Integrity  : ${p.integ.map(e => e.toUpperCase()).join(' ')}`,
+            `     PRF        : ${(p.prf ? [p.prf] : p.integ).map(e => e.toUpperCase()).join(' ')}`, `     DH Group   : ${p.group.map(g => DH_SHOW[g] || 'Group ' + g).join(' ')}`,
+            `     PQC Key Exchange: ${p.pqc ? p.pqc.algs.map(a => PQC_LABEL[a]).join(' ') : 'none'}`];
+          const all = [...Object.entries(d.crypto.proposals), ...(d.crypto.defaults.proposal ? [['default', DEFAULT_PROPOSAL]] : [])].filter(([n]) => !only || n === only);
+          return all.flatMap(([n, p]) => blk(n, p));
+        };
       const SHOW = [
         C('show running-config', d => lab._runningConfig(d.key)),
         C('show running-config interface IFACE', (d, v) => lab._runningConfig(d.key, v[3])),
@@ -1337,12 +1446,8 @@
         C('show crypto ikev2 stats exchange', d => lab._showIkev2StatsExchange(d.key)),
         C('show crypto ikev2 session', d => lab._showIkev2Session(d.key, false)),
         C('show crypto ikev2 session detailed', d => lab._showIkev2Session(d.key, true)),
-        C('show crypto ikev2 proposal', d => {
-          const blk = (n, p) => [` IKEv2 proposal: ${n}`, `     Encryption : ${p.enc.map(e => e.toUpperCase()).join(' ')}`, `     Integrity  : ${p.integ.map(e => e.toUpperCase()).join(' ')}`,
-            `     PRF        : ${(p.prf ? [p.prf] : p.integ).map(e => e.toUpperCase()).join(' ')}`, `     DH Group   : ${p.group.map(g => DH_SHOW[g] || 'Group ' + g).join(' ')}`,
-            `     PQC Key Exchange: ${p.pqc ? p.pqc.algs.map(a => PQC_LABEL[a]).join(' ') : 'none'}`];
-          return [...Object.entries(d.crypto.proposals).flatMap(([n, p]) => blk(n, p)), ...(d.crypto.defaults.proposal ? blk('default', DEFAULT_PROPOSAL) : [])];
-        }),
+        C('show crypto ikev2 proposal', d => showProposals(d)),
+        C('show crypto ikev2 proposal WORD', (d, v) => showProposals(d, v[4])),
         C('show crypto ikev2 policy', d => {
           const blk = (n, fvrf, props) => [` IKEv2 policy : ${n}`, `      Match fvrf ${n === 'default' ? ':' : ' :'} ${fvrf}`, '      Match address local : any', '      Match application type : any', ...props.map(x => `      Proposal    : ${x}`)];
           const user = Object.entries(d.crypto.policies).map(([n, p]) => blk(n, 'global', p.proposals));
@@ -1401,8 +1506,10 @@
         C('write memory', () => ['Building configuration...', '[OK]']), C('write', () => ['Building configuration...', '[OK]']),
         C('copy running-config startup-config', () => ['Destination filename [startup-config]? ', 'Building configuration...', '[OK]']),
         C('debug crypto ikev2', d => { d.debug.ikev2 = true; return ['IKEv2 default debugging is on']; }),
-        C('undebug all', d => { d.debug.ikev2 = false; return ['All possible debugging has been turned off']; }),
-        C('no debug all', d => { d.debug.ikev2 = false; return ['All possible debugging has been turned off']; }),
+        C('debug crypto ikev2 error', d => { d.debug.err = true; return ['IKEv2 error debugging is on']; }),
+        C('undebug all', d => { d.debug.ikev2 = false; d.debug.err = false; return ['All possible debugging has been turned off']; }),
+        C('no debug all', d => { d.debug.ikev2 = false; d.debug.err = false; return ['All possible debugging has been turned off']; }),
+        C('clear logging', d => { d.logBuf = []; return []; }),
         ...PING, ...SHOW, ...misc,
       ].map(c => ({ ...c, cfg: false }));
 
@@ -1528,7 +1635,8 @@
       const prop = d => cp(d).proposals[d.ctx.proposal];
       const listCmd = (kw, field, opts, conv = x => x) => [1, 2, 3].map(n => C(`${kw} ${Array(n).fill(`(${opts})`).join(' ')}`, (d, v, neg) => {
         const p = prop(d); const vals = v.slice(1).map(conv);
-        if (neg) p[field] = p[field].filter(x => !vals.includes(x)); else for (const x of vals) if (!p[field].includes(x)) p[field].push(x);
+        // IOS: `encryption aes-cbc-128` REPLACES the list (dataset C1: Received Policies shows only AES-CBC-128)
+        if (neg) p[field] = p[field].filter(x => !vals.includes(x)); else p[field] = [...new Set(vals)];
         return [];
       }, { no: true }));
       const PROPOSAL = [

@@ -8,6 +8,7 @@ Browser-based labs for learning quantum-safe IPsec VPNs on Cisco IOS XE. No rout
 |---|---|
 | Quick lab: classic IKEv2 VPN | [`tutorials/v5-quickstart/?track=classic`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v5-quickstart/?track=classic) |
 | Quick lab: post-quantum VPN (ML-KEM) | [`tutorials/v5-quickstart/?track=pqc`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v5-quickstart/?track=pqc) |
+| Quick lab: negotiation experiments | [`tutorials/v5-quickstart/?track=negotiate`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v5-quickstart/?track=negotiate) |
 | Quick lab: from classic to PQC | [`tutorials/v5-quickstart/?track=migrate`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v5-quickstart/?track=migrate) |
 | Classic site-to-site VPN (IKEv2 + VTI) | [`tutorials/v3-three-router/?track=classic`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v3-three-router/?track=classic) |
 | Post-Quantum Key Exchange on Cisco Routers (classical → PPK → ML-KEM-768 → hub-and-spoke) | [`tutorials/v3-three-router/`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v3-three-router/) |
@@ -40,6 +41,7 @@ Then open http://localhost:8770/.
 ```bash
 node tutorials/v3-three-router/test/run-tests.js
 node tutorials/v5-quickstart/test/run-tests.js
+node tutorials/v3-three-router/test/negotiation-replay.js <negotiation-dataset-dir>
 node tutorials/v3-three-router/test/groundtruth-replay.js <dataset-dir>
 ```
 
