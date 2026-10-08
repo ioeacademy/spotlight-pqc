@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="blocks.css?v=20261009f">
+  <link rel="stylesheet" href="blocks.css?v=20261010a">
 </head>
 <body>
   <header class="bar">
@@ -16,6 +16,9 @@
     <h1>VPN Block Builder</h1>
     <span class="edu" title="Educational simulator: output may differ from real routers. Not for validating configurations. Provided as is, without support.">Education only</span>
     <span class="grow"></span>
+    <span class="seg" role="group" aria-label="View">
+      <button type="button" data-view="nested" aria-pressed="true" title="Blocks nested inside the blocks that use them">Nested</button><button type="button" data-view="rows" aria-pressed="false" title="One row per block type, R1 and R3 side by side">Compare rows</button>
+    </span>
     <label class="start" for="start">Start from
       <select id="start">
         <option value="example">Worked example</option>
@@ -29,8 +32,8 @@
   <main class="page">
     <section class="intro" aria-labelledby="intro-h">
       <div class="intro-text">
-        <h2 id="intro-h">Seven blocks make one tunnel</h2>
-        <p>A Cisco IKEv2 VPN is a chain of small configuration blocks. Each block has a job, and blocks point to each other <b>by name</b>. Build R1 and R3 side by side: a row is one kind of block, so you compare the two routers by reading across.</p>
+        <h2 id="intro-h">Blocks inside blocks make one tunnel</h2>
+        <p>A Cisco IKEv2 VPN is built from small configuration blocks that plug into each other <b>by name</b>. The tunnel uses an IPsec profile; the IPsec profile uses a transform set and an IKEv2 profile; the IKEv2 profile uses a keyring. <b>Nested</b> shows that composition for R1 and R3 side by side. <b>Compare rows</b> lines up each kind of block across the two routers.</p>
         <ul class="legend" aria-label="What the middle of each row means">
           <li><span class="rel eq">=</span><span><b>Must match</b> on both routers: algorithms, key, transform set.</span></li>
           <li><span class="rel mir">⇄</span><span><b>Must mirror</b>: my address is your peer address.</span></li>
@@ -82,6 +85,6 @@
   </dialog>
 
   <script src="../v3-three-router/js/ios-pqc-engine.js?v=20261009b"></script>
-  <script src="blocks.js?v=20261009d"></script>
+  <script src="blocks.js?v=20261010a"></script>
 </body>
 </html>

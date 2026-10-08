@@ -101,6 +101,10 @@
 
   let cfg, r2 = { ip1: '10.0.12.2', ip2: '10.0.23.1' }, start = 'example', focus = null;
   const eyes = new Set(), folded = new Set();   // per block: IOS shown / fields collapsed
+  let view = 'nested';                           // 'nested': how blocks compose · 'rows': compare the peers row by row
+  // composition: which block a reference field nests (Tunnel ⊃ IPsec profile ⊃ {transform set, IKEv2 profile ⊃ keyring}; policy ⊃ proposal)
+  const CHILD = { tun: { ipsec: 'ipsec' }, ipsec: { ts: 'ts', prof: 'prof' }, prof: { keyring: 'keys' }, pol: { prop: 'prop' } };
+  const ROOTS = ['wan', 'pol', 'tun'];
   function load(name) {
     start = STARTS[name] ? name : 'example';
     cfg = { r1: STARTS[start].r1(), r3: STARTS[start].r3() };
@@ -251,17 +255,40 @@
       default: return `<div class="fld"><label for="${id}"${help}>${esc(f.label)}</label><input type="text" class="${f.type === 'ip' || f.f === 'psk' ? 'mono' : ''}" id="${id}" data-dev="${dev}" data-b="${b.key}" data-f="${f.f}" value="${esc(c[f.f])}" spellcheck="false" autocomplete="off"${f.type === 'ip' ? ' inputmode="decimal" placeholder="a.b.c.d"' : ''}></div>`;
     }
   }
-  function blockHtml(dev, b) {
-    const c = cfg[dev][b.key], id = `blk-${dev}-${b.key}`;
+  function blockHtml(dev, b, nest) {
+    const c = cfg[dev][b.key], id = `blk-${dev}-${b.key}`, fk = dev + ':' + b.key;
+    // nest(field) returns the HTML of the block plugged into that reference, or ''
     const nameF = b.named ? `<div class="fld"><label for="${fieldId(dev, b.key, 'name')}">Name</label><input type="text" class="mono" id="${fieldId(dev, b.key, 'name')}" data-dev="${dev}" data-b="${b.key}" data-f="name" value="${esc(c.name)}" spellcheck="false" autocomplete="off" placeholder="e.g. ${NAMES[b.key]}"></div>` : '';
-    return `<article class="blk" id="${id}" data-dev="${H[dev]}" style="--c: var(--${b.chunk})">
-      <div class="blk-head"><button type="button" class="eye fold" data-fold="${dev}:${b.key}" aria-expanded="${!folded.has(dev + ':' + b.key)}" aria-controls="${id}-body" aria-label="Collapse or expand ${H[dev]} ${esc(b.title)}" title="Collapse or expand this block">${folded.has(dev + ':' + b.key) ? '▸' : '▾'}</button><span class="nm" id="${id}-nm"></span><span class="st" id="${id}-st"></span>
+    const fields = b.fields.map(f => { const h = fieldHtml(dev, b, f); const kid = nest && f.type === 'ref' ? nest(f.f) : ''; return kid ? h + `<div class="socket" style="--pc: var(--${b.chunk})">${kid}</div>` : h; }).join('');
+    return `<article class="blk${folded.has(fk) ? ' folded' : ''}${nest && nest.orphan ? ' orphan' : ''}" id="${id}" data-dev="${H[dev]}" data-chunk="${b.chunk}" style="--c: var(--${b.chunk})">
+      <div class="blk-head"><button type="button" class="eye fold" data-fold="${dev}:${b.key}" aria-expanded="${!folded.has(dev + ':' + b.key)}" aria-controls="${id}-body" aria-label="Collapse or expand ${H[dev]} ${esc(b.title)}" title="Collapse or expand this block">${folded.has(dev + ':' + b.key) ? '▸' : '▾'}</button><span class="kind">${esc(b.title)}</span><span class="nm" id="${id}-nm"></span><span class="sum" id="${id}-sum"></span><span class="st" id="${id}-st"></span>
         <button type="button" class="eye" data-eye="${dev}:${b.key}" aria-pressed="${eyes.has(dev + ':' + b.key)}" aria-label="Show the IOS for ${H[dev]} ${esc(b.title)}" title="Show the IOS for this block">👁</button></div>
-      <div class="blk-body" id="${id}-body"${folded.has(dev + ':' + b.key) ? ' hidden' : ''}>${nameF}${b.fields.map(f => fieldHtml(dev, b, f)).join('')}</div>
+      ${nest && nest.orphan ? `<div class="orphan-note">Not connected: no block uses <code>${esc(c.name || 'this block')}</code> by name.</div>` : ''}
+      <div class="blk-body" id="${id}-body"${folded.has(fk) ? ' hidden' : ''}>${nameF}${fields}</div>
       <pre class="ios" id="${id}-ios"${eyes.has(dev + ':' + b.key) ? '' : ' hidden'}></pre>
     </article>`;
   }
+  // a reference is "plugged in" when its value is exactly the name of the target block on the same router
+  const plugged = (dev, key, f) => { const t = CHILD[key] && CHILD[key][f]; return !!t && !!cfg[dev][key][f] && cfg[dev][key][f] === cfg[dev][t].name; };
+  function treeHtml(dev) {
+    const placed = new Set();
+    const node = (key, orphan) => {
+      placed.add(key);
+      const nest = f => { const t = CHILD[key] && CHILD[key][f]; return t && plugged(dev, key, f) && !placed.has(t) ? node(t) : ''; };
+      nest.orphan = !!orphan;
+      return blockHtml(dev, BY[key], nest);
+    };
+    const roots = ROOTS.map(k => node(k)).join('');
+    const orphans = BLOCKS.filter(b => !placed.has(b.key)).map(b => node(b.key, true)).join('');
+    return roots + orphans;
+  }
+  function renderTree() {
+    $('#rows').innerHTML = `<div class="tree-cols">${DEVS.map(d => `<section class="tree" aria-label="${H[d]} configuration">${treeHtml(d)}</section>`).join('')}</div><div class="tree-msgs" id="tree-msgs"></div>`;
+  }
   function renderAll() {
+    document.body.classList.toggle('view-nested', view === 'nested');
+    document.querySelectorAll('[data-view]').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === view));
+    if (view === 'nested') { renderTree(); renderSheet(); renderChunks(); renderPredict(); refresh(); return; }
     const rows = $('#rows');
     rows.innerHTML = BLOCKS.map(b => {
       const ch = CHUNKS.find(x => x.id === b.chunk);
@@ -274,6 +301,7 @@
     renderSheet(); renderChunks(); renderPredict(); refresh();
   }
   function rerenderBlock(dev, key) {
+    if (view === 'nested') { renderTree(); return refresh(); }
     const el = $(`#blk-${dev}-${key}`); const tmp = document.createElement('div'); tmp.innerHTML = blockHtml(dev, BY[key]); el.replaceWith(tmp.firstElementChild);
   }
 
@@ -299,6 +327,7 @@
     card.hidden = false;
     card.innerHTML = c ? `<b class="q">${c.n} · ${c.label}: ${esc(c.q)}</b><p>${esc(c.p)}</p>` : `<b class="q">${esc({ example: 'Worked example', complete: 'Your turn: complete R3', bugs: 'Troubleshooting', pqc: 'Quantum-safe worked example' }[start])}</b><p>${esc(STARTS[start].text)}</p>`;
     document.querySelectorAll('.row').forEach(r => r.classList.toggle('dim', !!focus && r.dataset.chunk !== focus));
+    document.querySelectorAll('.tree .blk').forEach(b => b.classList.toggle('dim-blk', !!focus && b.dataset.chunk !== focus));
   }
   function wiring(dev) {
     const c = cfg[dev];
@@ -336,10 +365,14 @@
           s.innerHTML = ok ? '✓ linked' : target ? `✕ <button type="button" class="fix" data-fix="${dev}:${b.key}:${f.f}" title="Use ${esc(target)}">use ${esc(target)}</button>` : '✕ name it first';
         }
         const ios = $(`#${id}-ios`); if (ios && !ios.hidden) ios.innerHTML = htmlIos(iosOf(dev, b.key));
+        const sum = $(`#${id}-sum`); if (sum) sum.textContent = view === 'nested' ? composition(dev, b.key) : '';
       }
     }
+    const tm = $('#tree-msgs');
+    if (tm) { const seen = new Set(); const all = BLOCKS.flatMap(b => A.rows[b.key].msgs).filter(m => m.sev !== 'info' && !seen.has(m.t) && seen.add(m.t)); tm.innerHTML = all.length ? `<h3>To fix (${all.length})</h3>` + all.map(m => `<div class="msg ${m.sev}">${esc(m.t)}</div>`).join('') : ''; }
     for (const b of BLOCKS) {
       const r = A.rows[b.key];
+      if (!$(`#mid-${b.key}`)) continue;
       $(`#mid-${b.key}`).innerHTML = r.mid.filter(Boolean).map(l => `<div class="chk-line ${l.st}"><span class="rel ${l.rel === '=' ? 'eq' : l.rel === '⇄' ? 'mir' : 'loc'}">${esc(l.rel)}</span><span class="t">${esc(l.t)}</span></div>`).join('');
       const seen = new Set();
       $(`#msgs-${b.key}`).innerHTML = r.msgs.filter(m => !seen.has(m.t) && seen.add(m.t)).map(m => `<div class="msg ${m.sev}">${esc(m.t)}</div>`).join('');
@@ -352,6 +385,12 @@
     }
     const ea = $('#cnt-all'); if (ea) { ea.textContent = total ? `${total} ✕` : '✓'; ea.className = 'cnt ' + (total ? 'bad' : 'ok'); }
     drawTopo(total);
+  }
+
+  // one-line summary of what a block contains, shown when it is collapsed
+  function composition(dev, key) {
+    const kids = Object.entries(CHILD[key] || {}).filter(([f]) => plugged(dev, key, f)).map(([, t]) => { const inner = composition(dev, t); return cfg[dev][t].name + (inner ? ` ⊃ ${inner}` : ''); });
+    return kids.length > 1 ? `{ ${kids.join(', ')} }` : kids.join('');
   }
 
   /* ───────── topology (dual coding: the same values as the blocks) ───────── */
@@ -473,6 +512,7 @@
   document.addEventListener('change', e => {
     const t = e.target;
     if (t.id === 'start') return load(t.value);
+    if (view === 'nested' && t.dataset.dev && (t.dataset.f === 'name' || t.dataset.ref)) { renderTree(); renderChunks(); return refresh(); }
     if (t.name === 'pred') { prediction = t.value; return; }
     if (!t.dataset.dev) return;
     const c = cfg[t.dataset.dev][t.dataset.b];
@@ -483,6 +523,8 @@
   document.addEventListener('click', e => {
     const chip = e.target.closest('.chip');
     if (chip) { const { dev, b, f, v } = chip.dataset, list = cfg[dev][b][f], i = list.indexOf(v); if (i >= 0) list.splice(i, 1); else list.push(v); rerenderBlock(dev, b); return changed(); }
+    const vb = e.target.closest('[data-view]');
+    if (vb) { view = vb.dataset.view; return renderAll(); }
     const fold = e.target.closest('.fold');
     if (fold) { setFold(fold.dataset.fold, !folded.has(fold.dataset.fold)); return; }
     const all = e.target.closest('[data-all]');
@@ -495,7 +537,7 @@
     const eye = e.target.closest('.eye');
     if (eye) { const k = eye.dataset.eye; if (eyes.has(k)) eyes.delete(k); else eyes.add(k); const [dev, key] = k.split(':'); eye.setAttribute('aria-pressed', eyes.has(k)); $(`#blk-${dev}-${key}-ios`).hidden = !eyes.has(k); return refresh(); }
     const fix = e.target.closest('.fix');
-    if (fix) { const [dev, key, f] = fix.dataset.fix.split(':'), target = cfg[dev][BY[key].fields.find(x => x.f === f).ref].name; cfg[dev][key][f] = target; $(`#${fieldId(dev, key, f)}`).value = target; return changed(); }
+    if (fix) { const [dev, key, f] = fix.dataset.fix.split(':'), target = cfg[dev][BY[key].fields.find(x => x.f === f).ref].name; cfg[dev][key][f] = target; $(`#${fieldId(dev, key, f)}`).value = target; if (view === 'nested') { renderTree(); renderChunks(); } return changed(); }
     const ch = e.target.closest('.chunk');
     if (ch) { if (ch.dataset.chunk === 'test') { $('#test').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); return; } focus = ch.dataset.chunk || null; renderChunks(); const first = BLOCKS.find(b => b.chunk === focus); if (first) $(`#row-${first.key}`).scrollIntoView({ block: 'start', behavior: 'smooth' }); return; }
     const fb = e.target.closest('[data-full]');
@@ -509,6 +551,7 @@
     const [d, key] = k.split(':'), btn = $(`[data-fold="${k}"]`), body = $(`#blk-${d}-${key}-body`);
     if (btn) { btn.setAttribute('aria-expanded', !on); btn.textContent = on ? '▸' : '▾'; }
     if (body) body.hidden = on;
+    const art = $(`#blk-${d}-${key}`); if (art) art.classList.toggle('folded', on);
   }
   const selectPre = () => { const r = document.createRange(); r.selectNodeContents($('#full-pre')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); $('#copy').textContent = 'Press ⌘C / Ctrl+C'; };
   // hovering a reference highlights the block it points to: names are how blocks connect

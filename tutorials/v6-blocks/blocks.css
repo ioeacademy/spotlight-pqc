@@ -235,3 +235,28 @@ dialog::backdrop { background: rgba(10, 16, 24, .45); }
 }
 @media (max-width: 480px) { .blk-body { padding: 4px 6px 8px; } .ios { margin: 0 6px 8px; font-size: 11px; } .blk-head .st { display: none; } }
 @media (prefers-reduced-motion: reduce) { .blk { transition: none; } }
+
+/* ── view switch ── */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 4px 12px; border: 0; background: var(--panel); cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg); }
+
+/* ── nested view: Blockly statement inputs ── */
+.blk-head .kind { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: rgba(255,255,255,.85); white-space: nowrap; }
+.blk-head .sum { display: none; font: 500 11.5px var(--mono); color: rgba(255,255,255,.92); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view-nested .blk.folded > .blk-head .sum:not(:empty) { display: inline; }
+.view-nested .blk.folded > .blk-head .sum:not(:empty)::before { content: "⊃ "; }
+.cols-head .col-mid { min-width: 0; }
+.view-nested .cols-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.view-nested .cols-head .col-mid { display: none; }
+.tree-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+.tree { display: grid; gap: 4px; min-width: 0; }
+.tree .blk { margin: 4px 0 12px; }
+.socket { margin: 2px 0 2px; padding: 6px 0 2px 10px; border-left: 12px solid var(--pc); border-radius: 0 0 0 10px; background: color-mix(in srgb, var(--pc) 7%, transparent); }
+.socket > .blk { margin: 2px 0 10px; }
+.blk.orphan { border-style: dashed; }
+.orphan-note { font-size: 12px; padding: 6px 10px 0; color: var(--bad); }
+.blk.dim-blk > .blk-head, .blk.dim-blk > .blk-body > .fld, .blk.dim-blk > .ios { opacity: .4; }
+.tree-msgs { display: grid; gap: 4px; margin-top: 4px; }
+.tree-msgs h3 { margin: 0 0 2px; font-size: 14px; }
