@@ -291,7 +291,7 @@ ${HOW}`,
       html: `
 <p>Build the classic VPN on both routers. It's the same configuration as the Classic tutorial:</p>
 ${cfg('r1', shown(R1_CLASSIC))}
-${cfg('r3', ['…same blocks, with:', '  peer R1 / address 10.0.12.1', '  match identity remote address 10.0.12.1 255.255.255.255', 'interface Tunnel0', ' ip address 192.168.100.2 255.255.255.0', ' tunnel destination 10.0.12.1'])}
+${cfg('r3', shown(R3_CLASSIC), 'mirror: peer R1 (10.0.12.1), tunnel .2')}
 <p>Then look at the SA:</p>
 ${cfg('r1', ['show crypto ikev2 sa'])}
 ${out(['      Encr: AES-CBC, keysize: 256, PRF: SHA512, Hash: SHA512, DH Grp:20, Auth sign: PSK, Auth verify: PSK'])}

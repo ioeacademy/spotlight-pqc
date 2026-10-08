@@ -90,7 +90,7 @@ kbd { border-bottom-width: 2px; }
 .t.mono td { font-family: var(--font-mono); font-size: 12px; }
 .pill { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 99px; color: #fff; white-space: nowrap; }
 .pill.classic { background: var(--classic); } .pill.ppk { background: var(--ppk); } .pill.pqc { background: var(--pqc); } .pill.hub { background: var(--warn); }
-.cfg { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.cfg { margin: 8px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative; }
 .cfg-head { display: flex; gap: 8px; align-items: center; padding: 4px 8px; background: var(--panel-2); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); }
 .dev-chip { font-weight: 700; font-size: 10.5px; padding: 1px 7px; border-radius: 4px; color: #fff; background: var(--cisco-brand-blue); }
 .dev-chip.dev-r2 { background: #7a5c00; } .dev-chip.dev-r3 { background: #3d6b20; }
@@ -235,3 +235,13 @@ pre.out { border-radius: 8px; margin: 8px 0; color: #b8f5c8; }
 #topo .tun-label text.lbl-tun-net { font-family: var(--font-mono); font-size: calc(9.5px * var(--fs)); font-weight: 500; fill: var(--muted); }
 .edu-badge { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 99px; padding: 2px 9px; text-decoration: none; white-space: nowrap; }
 @media (max-width: 720px) { .edu-badge { display: none; } }
+
+/* ── per-snippet run button (▶, bottom right) ── */
+.cfg.runnable pre { padding-bottom: 30px; }
+.cfg-run { position: absolute; right: 8px; bottom: 7px; width: 26px; height: 22px; border-radius: 6px; border: 1px solid var(--success); background: var(--term-bg); color: var(--success); font-size: 11px; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0 0 0 2px; opacity: .85; }
+.cfg-run:hover, .cfg-run:focus-visible { opacity: 1; background: var(--success); color: #fff; outline: none; }
+.cfg-run.running { opacity: 1; animation: cfg-pulse 1s ease-in-out infinite; }
+.cfg-run.ran::after { content: '✓'; position: absolute; right: 30px; color: var(--success); font-size: 12px; font-weight: 700; }
+.cfg-run:disabled { cursor: progress; }
+@keyframes cfg-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .cfg-run.running { animation: none; } }

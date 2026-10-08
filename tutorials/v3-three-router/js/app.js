@@ -137,10 +137,12 @@
           </div>
         </div>`;
       li.querySelector('.step-head').addEventListener('click', () => toggleStep(i));
+      addSnippetButtons(li);
       ol.appendChild(li);
     });
     const fin = document.createElement('li'); fin.className = 'finish'; fin.id = 'finish'; ol.appendChild(fin);
     ol.addEventListener('click', e => {
+      const run = e.target.closest('.cfg-run'); if (run) return runSnippet(run);
       const sm = e.target.closest('[data-showme]'), ct = e.target.closest('[data-continue]');
       if (sm) showMe(+sm.dataset.showme);
       if (ct) complete(+ct.dataset.continue);
@@ -196,6 +198,48 @@
     }
     btn.textContent = '▶ Show Me again'; btn.disabled = false; busy = false;
     T[activeDev].inp.focus({ preventScroll: true });
+  }
+  /* ── per-snippet ▶: run one config snippet on its router ── */
+  const EXEC_RE = /^(show|ping|traceroute|clear|debug|undebug|write|copy|enable|disable)\b/;
+  function addSnippetButtons(li) {
+    li.querySelectorAll('.cfg').forEach(box => {
+      const chip = box.querySelector('.dev-chip'), pre = box.querySelector('pre');
+      const dev = chip && [...chip.classList].map(c => /^dev-(r\d)$/.exec(c)).find(Boolean);
+      // only real commands: skip illustrative snippets (ellipses, prose)
+      if (!dev || !pre || !TOPO.devices[dev[1]] || /…|\.\.\.same/.test(pre.textContent)) return;
+      const b = document.createElement('button');
+      b.className = 'cfg-run'; b.type = 'button'; b.dataset.dev = dev[1];
+      b.title = `Run this snippet on ${TOPO.devices[dev[1]].hostname}`; b.setAttribute('aria-label', b.title);
+      b.textContent = '▶';
+      box.classList.add('runnable'); box.appendChild(b);
+    });
+  }
+  async function runSnippet(btn) {
+    if (busy) return;
+    const k = btn.dataset.dev, lines = btn.parentElement.querySelector('pre').textContent.split('\n');
+    busy = true; btn.disabled = true; btn.classList.add('running');
+    try {
+      const mode = () => lab.dev(k).mode;
+      if (mode() === 'exec') await typeCmd(k, 'enable');
+      if (!['exec', 'priv'].includes(mode())) await typeCmd(k, 'end');
+      let inCfg = false, depth = 0;
+      for (const raw of lines) {
+        const t = raw.trim(); if (!t || t === '!') continue;
+        const ind = raw.length - raw.trimStart().length;
+        if (t === 'configure terminal') { if (!inCfg) await typeCmd(k, t); inCfg = true; depth = 0; continue; }
+        if (t === 'end') { if (inCfg) await typeCmd(k, 'end'); inCfg = false; depth = 0; continue; }
+        if (t === 'enable' && mode() !== 'exec') continue;
+        if (EXEC_RE.test(t)) { if (inCfg) { await typeCmd(k, 'end'); inCfg = false; } await typeCmd(k, t); continue; }
+        if (!inCfg) { await typeCmd(k, 'configure terminal'); inCfg = true; depth = 0; }
+        // indentation = sub-mode depth: leave sub-modes the way the snippet's layout implies
+        for (; depth > ind; depth--) await typeCmd(k, 'exit');
+        await typeCmd(k, t); depth = ind;
+      }
+      if (inCfg) await typeCmd(k, 'end');
+    } finally {
+      busy = false; btn.disabled = false; btn.classList.remove('running'); btn.classList.add('ran');
+      T[k].inp.focus({ preventScroll: true });
+    }
   }
   function updateProgress() {
     const n = done.size, tot = STEPS.length;
