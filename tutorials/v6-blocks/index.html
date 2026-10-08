@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>VPN Block Builder</title>
+  <meta name="description" content="Build a Cisco IKEv2 site-to-site VPN from configuration blocks: see what each block does, which values must match the peer, and the IOS each block becomes. Education only.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="blocks.css?v=20261009b">
+</head>
+<body>
+  <header class="bar">
+    <a class="home" href="../../index.html">&larr; Spotlight-PQC</a>
+    <h1>VPN Block Builder</h1>
+    <span class="edu" title="Educational simulator: output may differ from real routers. Not for validating configurations. Provided as is, without support.">Education only</span>
+    <span class="grow"></span>
+    <label class="start" for="start">Start from
+      <select id="start">
+        <option value="example">Worked example</option>
+        <option value="complete">Complete R3 yourself</option>
+        <option value="bugs">Find the 5 bugs</option>
+        <option value="pqc">Quantum-safe (ML-KEM)</option>
+      </select>
+    </label>
+  </header>
+
+  <main class="page">
+    <section class="intro" aria-labelledby="intro-h">
+      <div class="intro-text">
+        <h2 id="intro-h">Seven blocks make one tunnel</h2>
+        <p>A Cisco IKEv2 VPN is a chain of small configuration blocks. Each block has a job, and blocks point to each other <b>by name</b>. Build R1 and R3 side by side: a row is one kind of block, so you compare the two routers by reading across.</p>
+        <ul class="legend" aria-label="What the middle of each row means">
+          <li><span class="rel eq">=</span><span><b>Must match</b> on both routers: algorithms, key, transform set.</span></li>
+          <li><span class="rel mir">⇄</span><span><b>Must mirror</b>: my address is your peer address.</span></li>
+          <li><span class="rel loc">local</span><span><b>Local only</b>: names are labels inside one router. They don't have to match the peer.</span></li>
+        </ul>
+        <p class="hint">Click <span class="eye-inline" aria-hidden="true">👁</span> on any block to see the IOS it becomes.</p>
+      </div>
+      <figure class="topo-card" aria-label="Topology">
+        <svg id="topo" viewBox="0 0 900 230" role="img" aria-labelledby="topo-t"><title id="topo-t">R1, R2 and R3 in a row, with the tunnel between R1 and R3</title></svg>
+        <figcaption>
+          <span>R2 is the WAN. It only forwards packets and has no crypto.</span>
+          <span class="r2-edit">R2 addresses:
+            <label for="r2-ip1">to R1</label><input id="r2-ip1" class="ip" data-r2="ip1" spellcheck="false" autocomplete="off">
+            <label for="r2-ip2">to R3</label><input id="r2-ip2" class="ip" data-r2="ip2" spellcheck="false" autocomplete="off">
+          </span>
+        </figcaption>
+      </figure>
+    </section>
+
+    <section class="sheet" aria-labelledby="sheet-h">
+      <h2 id="sheet-h">Design sheet <span class="sub">the parameters to implement</span></h2>
+      <div class="sheet-scroll"><table id="sheet"></table></div>
+    </section>
+
+    <nav class="chunks" id="chunks" aria-label="Steps"></nav>
+    <div class="chunk-card" id="chunk-card" role="status" aria-live="polite"></div>
+
+    <div class="cols-head" aria-hidden="true">
+      <div class="col-h" id="ch-r1"></div><div class="col-mid"></div><div class="col-h" id="ch-r3"></div>
+    </div>
+    <div class="rows" id="rows"></div>
+
+    <section class="test" id="test" aria-labelledby="test-h">
+      <h2 id="test-h"><span class="ck ck-test">5</span> Test in the simulator</h2>
+      <p>The test loads both configurations into the simulated routers, lets R1 start the negotiation and pings through the tunnel. The simulator's negotiation was checked against captures from real IOS XE 26.02 routers.</p>
+      <div class="test-row">
+        <fieldset class="predict" id="predict"><legend>Predict first</legend></fieldset>
+        <button class="run" id="run" type="button">▶ Run negotiation</button>
+      </div>
+      <div class="result" id="result" role="status" aria-live="polite"></div>
+    </section>
+
+    <footer class="foot">Educational simulator. Output is modelled on Cisco IOS XE and may differ from real platforms; don't use it to validate configurations. Provided as is, without warranty or support. Not affiliated with or endorsed by Cisco Systems, Inc. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md">Full disclaimer</a>.</footer>
+  </main>
+
+  <dialog id="full" aria-labelledby="full-h">
+    <div class="dlg-head"><h2 id="full-h">Full configuration</h2><button type="button" class="copy" id="copy">Copy</button><button type="button" class="x" id="full-x" aria-label="Close">✕</button></div>
+    <pre id="full-pre"></pre>
+  </dialog>
+
+  <script src="../v3-three-router/js/ios-pqc-engine.js?v=20261009b"></script>
+  <script src="blocks.js?v=20261009b"></script>
+</body>
+</html>
