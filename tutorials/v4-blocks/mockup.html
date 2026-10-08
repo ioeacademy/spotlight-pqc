@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VPN Blocks Mockup</title>
+<meta name="description" content="Mockup of a block-based IPsec/PQC VPN builder: configurable blocks per router, agreement lines between peers, handshake checklist and generated IOS.">
+<style>
+:root {
+  --bg: #eef0f3; --panel: #fff; --panel-2: #f6f7f9; --border: #d4d7dd; --text: #23262b; --muted: #697079;
+  --accent: #7c4dff; --ok: #12a150; --warn: #d98e04; --fail: #d14343; --info: #8a94a0;
+  --b-tunnel: #2f7fc1; --b-ipsec: #7c4dff; --b-ts: #e07a1f; --b-ike: #12936f; --b-prop: #0f8aa6; --b-route: #6b7a8a; --b-router: #374448;
+  --code-bg: #1d2326; --code: #e6edf3;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; --mono: "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #1b2023; --panel: #252c30; --panel-2: #1f2629; --border: rgba(255,255,255,.13); --text: #eef1f3; --muted: #a3adb5; --accent: #9d7bff; --info: #7d8790;
+} }
+:root[data-theme="dark"] { --bg: #1b2023; --panel: #252c30; --panel-2: #1f2629; --border: rgba(255,255,255,.13); --text: #eef1f3; --muted: #a3adb5; --accent: #9d7bff; --info: #7d8790; }
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--text); font-size: 13px; }
+code { font-family: var(--mono); font-size: .92em; }
+
+/* top bar */
+.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 20; }
+.top h1 { font-size: 15px; margin: 0; }
+.mock { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; color: #fff; background: var(--warn); padding: 2px 8px; border-radius: 99px; }
+.sp { flex: 1; }
+.ctl { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 99px; overflow: hidden; }
+.seg button { font: inherit; font-size: 12px; border: 0; background: transparent; color: var(--text); padding: 4px 12px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+select, input[type=text] { font: inherit; font-size: 12px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; }
+.btn { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 99px; padding: 6px 16px; cursor: pointer; }
+.btn:hover { filter: brightness(1.08); }
+
+/* layout */
+.app { display: grid; grid-template-columns: 190px 1fr; gap: 12px; padding: 12px 16px 24px; }
+.toolbox { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px; align-self: start; position: sticky; top: 64px; }
+.toolbox h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.tb-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 6px; border-radius: 8px; color: #fff; font-weight: 600; font-size: 12px; cursor: grab; opacity: .95; }
+.tb-item::after { content: '⠿'; margin-left: auto; opacity: .7; }
+.tb-note { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+
+.main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.stage { position: relative; display: grid; grid-template-columns: 1fr 120px 1fr; gap: 0; }
+.ws { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 16px 16px; min-width: 0; }
+.ws-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ws-head b { font-size: 14px; }
+.ws-head span { color: var(--muted); font-size: 12px; }
+.ws-head .chip { margin-left: auto; font-family: var(--mono); font-size: 11px; background: var(--panel-2); border: 1px solid var(--border); padding: 1px 7px; border-radius: 6px; }
+.gutter { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding-top: 14px; color: var(--muted); font-size: 11px; text-align: center; }
+.gutter .wan { margin-top: 2px; font-family: var(--mono); font-size: 10px; }
+svg.lines { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; z-index: 5; }
+svg.lines path { fill: none; stroke-width: 2; opacity: .55; transition: opacity .15s, stroke-width .15s; }
+svg.lines path.hl { opacity: 1; stroke-width: 3.5; }
+svg.lines path.ok { stroke: var(--ok); } svg.lines path.warn { stroke: var(--warn); stroke-dasharray: 6 4; } svg.lines path.fail { stroke: var(--fail); } svg.lines path.info { stroke: var(--info); stroke-dasharray: 2 4; }
+svg.lines circle { r: 4; }
+svg.lines circle.ok { fill: var(--ok); } svg.lines circle.warn { fill: var(--warn); } svg.lines circle.fail { fill: var(--fail); } svg.lines circle.info { fill: var(--info); }
+svg.lines .tag { font-size: 10.5px; font-weight: 700; font-family: var(--mono); fill: #fff; }
+svg.lines .tagbg { fill: var(--ok); }
+svg.lines path.neutral { stroke: var(--info); stroke-dasharray: 3 5; opacity: .45; }
+svg.lines circle.neutral { fill: var(--info); }
+
+/* blocks */
+.blk { position: relative; border-radius: 10px; color: #fff; margin: 0 0 10px; box-shadow: 0 1px 0 rgba(0,0,0,.18), 0 2px 6px rgba(0,0,0,.08); }
+.blk::before { content: ''; position: absolute; left: 18px; top: -5px; width: 22px; height: 6px; border-radius: 3px 3px 0 0; background: inherit; } /* puzzle notch */
+.blk > .hd { display: flex; align-items: center; gap: 6px; padding: 7px 10px 5px; font-weight: 700; font-size: 12.5px; cursor: grab; }
+.blk > .hd .nm { margin-left: auto; font-family: var(--mono); font-weight: 600; font-size: 11px; background: rgba(0,0,0,.22); padding: 1px 6px; border-radius: 4px; display: none; }
+body.names .blk > .hd .nm { display: inline; }
+.blk > .bd { padding: 2px 10px 9px; display: flex; flex-direction: column; gap: 5px; }
+.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.row > label { min-width: 92px; opacity: .92; font-size: 12px; }
+.row select, .row input[type=text] { background: rgba(255,255,255,.96); color: #1d2124; border-color: transparent; }
+.row input[type=text] { width: 140px; font-family: var(--mono); }
+.row .ro { font-family: var(--mono); font-size: 11.5px; background: rgba(0,0,0,.2); padding: 2px 7px; border-radius: 5px; }
+.row input[type=checkbox] { accent-color: #fff; width: 15px; height: 15px; }
+.f { position: relative; }
+.f.agree select, .f.agree input[type=text], .f.agree .ro { box-shadow: 0 0 0 2px var(--ok); }
+/* multi-value chips (proposal lists) */
+.f.multi { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 2px; border-radius: 8px; }
+
+.copt { font: inherit; font-size: 11.5px; font-family: var(--mono); border: 1px solid rgba(255,255,255,.4); background: rgba(255,255,255,.12); color: rgba(255,255,255,.75); border-radius: 99px; padding: 2px 9px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.copt:hover { background: rgba(255,255,255,.25); color: #fff; }
+.copt .ord { display: none; font-size: 10px; font-weight: 800; background: #1d2124; color: #fff; border-radius: 99px; min-width: 15px; height: 15px; line-height: 15px; text-align: center; }
+.copt.sel { background: #fff; color: #1d2124; border-color: #fff; }
+.copt.sel .ord { display: inline-block; }
+
+.multi-help { font-size: 10.5px; opacity: .85; margin: -2px 0 2px; }
+.f.bad select, .f.bad input[type=text] { outline: 2px solid var(--fail); outline-offset: 1px; }
+.f.focus select, .f.focus input[type=text], .f.focus .ro { box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--accent); }
+.f.wrn select, .f.wrn input[type=text] { outline: 2px dashed var(--warn); outline-offset: 1px; }
+.socket { border: 2px dashed rgba(255,255,255,.45); border-radius: 9px; padding: 8px 8px 0; margin-top: 4px; background: rgba(0,0,0,.12); }
+.socket > .lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; opacity: .85; margin: -2px 0 6px; }
+.tunnel { background: var(--b-tunnel); } .ipsec { background: var(--b-ipsec); } .ts { background: var(--b-ts); } .ike { background: var(--b-ike); }
+.prop { background: var(--b-prop); } .route { background: var(--b-route); } .frag { background: #4f6b7a; }
+.blk.focus { box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--accent); }
+body.concept .adv { display: none !important; }
+.ttl-ios { } .ttl-concept { display: none; }
+body.concept .ttl-ios { display: none; } body.concept .ttl-concept { display: inline; }
+.hint { font-size: 11px; opacity: .85; font-style: italic; }
+
+/* bottom panels */
+.bottom { display: grid; grid-template-columns: minmax(260px, 1fr) 1.4fr; gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.card > h3 { margin: 0; padding: 9px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.card > h3 .sp { flex: 1; }
+.checks { list-style: none; margin: 0; padding: 6px 0; }
+.checks li { display: grid; grid-template-columns: 22px 1fr; gap: 2px 6px; padding: 6px 12px; cursor: default; border-left: 3px solid transparent; }
+.checks li:hover, .checks li.hl { background: var(--panel-2); border-left-color: var(--accent); }
+.checks .ic { font-weight: 800; text-align: center; }
+.checks .ok .ic { color: var(--ok); } .checks .warn .ic { color: var(--warn); } .checks .fail .ic { color: var(--fail); } .checks .info .ic { color: var(--info); }
+.checks .t { font-weight: 600; }
+.checks .ph { font-size: 10px; color: var(--muted); font-family: var(--mono); margin-left: 6px; font-weight: 400; }
+.checks .m { grid-column: 2; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.ios-tabs { display: flex; gap: 4px; }
+.ios-tabs button { font: inherit; font-size: 11px; font-weight: 700; border: 1px solid var(--border); background: transparent; color: var(--muted); border-radius: 6px; padding: 2px 10px; cursor: pointer; }
+.ios-tabs button[aria-selected="true"] { background: var(--accent); color: #fff; border-color: var(--accent); }
+pre.ios { margin: 0; padding: 10px 12px; background: var(--code-bg); color: var(--code); font-family: var(--mono); font-size: 12px; line-height: 1.5; overflow: auto; max-height: 360px; flex: 1; }
+pre.ios .ln { display: block; padding: 0 4px; border-radius: 3px; }
+pre.ios .ln.hl { background: rgba(124,77,255,.35); }
+pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { color: #f0c674; }
+.result { margin: 0; padding: 10px 12px; border-top: 1px solid var(--border); font-size: 12.5px; display: none; }
+.result.show { display: block; }
+.result.ok { background: color-mix(in srgb, var(--ok) 12%, transparent); } .result.fail { background: color-mix(in srgb, var(--fail) 12%, transparent); }
+.result pre { margin: 6px 0 0; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; }
+
+.feedback { background: var(--panel); border: 1px dashed var(--accent); border-radius: 12px; padding: 10px 14px; font-size: 12.5px; line-height: 1.5; }
+.feedback b { color: var(--accent); }
+
+/* 4-chunk map (Reach → Agree → Trust → Protect) */
+:root { --ck-reach: #2f7fc1; --ck-agree: #0f8aa6; --ck-trust: #12936f; --ck-protect: #7c4dff; }
+.chunks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.chunk { font: inherit; text-align: left; display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 2px 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; border-bottom-width: 4px; position: relative; }
+.chunk:hover { border-color: var(--accent); }
+.chunk[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--accent); }
+.chunk .num { grid-row: 1 / 3; width: 26px; height: 26px; border-radius: 50%; color: #fff; display: grid; place-items: center; font-weight: 800; }
+.chunk b { font-size: 13px; } .chunk small { grid-column: 2; color: var(--muted); font-size: 11.5px; }
+.chunk .st { grid-row: 1 / 3; grid-column: 3; font-weight: 800; font-size: 15px; }
+.chunk.ok { border-bottom-color: var(--ok); } .chunk.ok .st { color: var(--ok); }
+.chunk.warn { border-bottom-color: var(--warn); } .chunk.warn .st { color: var(--warn); }
+.chunk.fail { border-bottom-color: var(--fail); } .chunk.fail .st { color: var(--fail); }
+.chunk.hidden { border-bottom-color: var(--border); } .chunk.hidden .st { color: var(--muted); }
+.chunk::after { content: '→'; position: absolute; right: -9px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 12px; }
+.chunk:last-child::after { content: none; }
+.ckb { font-size: 10px; font-weight: 800; padding: 1px 7px; border-radius: 99px; background: rgba(255,255,255,.92); letter-spacing: .02em; }
+.ck-reach { color: var(--ck-reach); } .ck-agree { color: var(--ck-agree); } .ck-trust { color: var(--ck-trust); } .ck-protect { color: var(--ck-protect); }
+.blk.dim > .hd, .blk.dim > .bd > .row, .blk.dim > .bd > .multi-help { opacity: .28; }
+.checks .grp { padding: 8px 12px 2px; font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; display: flex; gap: 6px; align-items: center; border: 0; cursor: default; }
+.checks .grp:hover { background: none; }
+.checks .grp i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.hidden-fb { padding: 18px 14px; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+/* goal banner + locked reference router */
+.goal-banner { background: var(--panel); border: 1px solid var(--accent); border-left: 5px solid var(--accent); border-radius: 10px; padding: 10px 14px; font-size: 13px; line-height: 1.5; }
+.goal-banner.done { border-color: var(--ok); border-left-color: var(--ok); }
+.ws.locked { position: relative; }
+.ws.locked .bd, .ws.locked .copt { pointer-events: none; }
+.ws.locked input, .ws.locked select, .ws.locked .copt { opacity: .85; }
+.lock { margin-left: 8px; font-size: 11px; font-weight: 700; color: var(--muted); }
+/* prediction */
+.predict { padding: 12px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--accent) 8%, transparent); font-size: 13px; }
+.predict p { margin: 0 0 8px; font-weight: 600; }
+.predict .opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.predict button { font: inherit; font-size: 12px; border: 1px solid var(--accent); background: var(--panel); color: var(--text); border-radius: 99px; padding: 5px 12px; cursor: pointer; }
+.predict button:hover { background: var(--accent); color: #fff; }
+.predict .skip { border-color: var(--border); color: var(--muted); }
+.verdict-line { display: block; margin-bottom: 6px; font-weight: 700; }
+.pscore { font-size: 12px; color: var(--muted); }
+
+@media (max-width: 1000px) {
+  .chunks { grid-template-columns: repeat(2, 1fr); }
+  .chunk::after { content: none; }
+  .app { grid-template-columns: 1fr; }
+  .toolbox { position: static; display: flex; flex-wrap: wrap; gap: 6px; }
+  .toolbox h3, .tb-note { width: 100%; }
+  .tb-item { margin: 0; }
+  .stage { grid-template-columns: 1fr; gap: 10px; }
+  .gutter { display: none; }
+  svg.lines { display: none; }
+  .bottom { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body class="names">
+<header class="top">
+  <span class="mock">MOCKUP</span>
+  <h1>VPN Blocks — build an IPsec tunnel from blocks</h1>
+  <span class="sp"></span>
+  <span class="ctl">View
+    <span class="seg" role="group" aria-label="View level">
+      <button id="v-concept" aria-pressed="false">Concepts</button>
+      <button id="v-ios" aria-pressed="true">IOS blocks</button>
+    </span>
+  </span>
+  <span class="ctl">Mode
+    <span class="seg" role="group" aria-label="Mode">
+      <button id="m-explore" aria-pressed="true">Explore</button>
+      <button id="m-complete" aria-pressed="false">Complete the peer</button>
+    </span>
+  </span>
+  <span class="ctl">Feedback
+    <span class="seg" role="group" aria-label="Feedback timing">
+      <button id="fb-live" aria-pressed="true">Live</button>
+      <button id="fb-after" aria-pressed="false">After Apply</button>
+    </span>
+  </span>
+  <label class="ctl"><input type="checkbox" id="t-predict" checked> Predict first</label>
+  <span class="pscore" id="pscore"></span>
+  <label class="ctl"><input type="checkbox" id="t-names" checked> Show IOS names</label>
+  <label class="ctl" id="preset-wrap">Scenario
+    <select id="preset">
+      <option value="almost">Almost there (2 problems)</option>
+      <option value="prefs">Multiple choices per peer (negotiation)</option>
+      <option value="nomatch">No DH group in common</option>
+      <option value="asym">Different keys per direction (asymmetric PSK)</option>
+      <option value="ikeonly">IKE up, but no traffic (misconception)</option>
+      <option value="classic">Classical — working</option>
+      <option value="pqc-one">ML-KEM on R1 only (optional)</option>
+      <option value="enforce">R1 enforces ML-KEM, R3 legacy</option>
+      <option value="full">Full quantum-safe + PFS</option>
+    </select>
+  </label>
+</header>
+
+<div class="app">
+  <aside class="toolbox" aria-label="Block toolbox">
+    <h3>Toolbox</h3>
+    <div class="tb-item tunnel">Tunnel</div>
+    <div class="tb-item ipsec">IPsec profile</div>
+    <div class="tb-item ts">Transform set</div>
+    <div class="tb-item ike">IKEv2 profile</div>
+    <div class="tb-item prop">IKEv2 proposal</div>
+    <div class="tb-item frag">Fragmentation</div>
+    <div class="tb-item route">Static route</div>
+    <div class="tb-item" style="background:#8a5a00">PPK <small>(phase 2)</small></div>
+    <p class="tb-note">In the prototype you drag these into a router. In this mockup the blocks are already placed: edit the fields and watch the lines between the peers.</p>
+  </aside>
+
+  <main class="main">
+    <div class="goal-banner" id="goal" hidden></div>
+    <nav class="chunks" id="chunks" aria-label="The four steps of an IPsec VPN"></nav>
+    <div class="stage" id="stage">
+      <section class="ws" id="ws-r1" aria-label="R1 workspace"></section>
+      <div class="gutter"><span>⇄ must agree ⇄</span><span class="wan">via R2 (transit)</span></div>
+      <section class="ws" id="ws-r3" aria-label="R3 workspace"></section>
+      <svg class="lines" id="lines" aria-hidden="true"></svg>
+    </div>
+
+    <div class="bottom">
+      <section class="card" aria-label="Handshake checklist">
+        <h3>Handshake checklist <span class="sp"></span><span id="score"></span></h3>
+        <ul class="checks" id="checks"></ul>
+      </section>
+      <section class="card" aria-label="Generated IOS">
+        <h3>Generated IOS <span class="sp"></span>
+          <span class="ios-tabs" role="tablist"><button id="tab-r1" aria-selected="true">R1</button><button id="tab-r3" aria-selected="false">R3</button></span>
+          <button class="btn" id="apply" style="margin-left:8px">▶ Apply to simulator</button>
+        </h3>
+        <pre class="ios" id="ios"></pre>
+        <div class="result" id="result"></div>
+      </section>
+    </div>
+
+    <div class="feedback">
+      <b>What to look at:</b> (1) nesting: the tunnel <i>contains</i> its IPsec profile, which contains the transform set and the IKEv2 profile, just as IOS references them by name.
+      (2) The <b>coloured lines</b> link fields that must agree between the peers: solid green = agree, red = mismatch, dashed amber = works but falls back or isn't recommended.
+      (3) The <b>checklist</b> follows the order of the IKEv2 handshake. Hover an item to highlight its lines.
+      (4) <b>Apply</b> sends the generated IOS to the real v3 simulator and shows whether the tunnel comes up.
+      (5) In the <b>IKEv2 proposal</b>, click the chips to choose each router's preferences (the number is the order). The line between the two lists turns <b>green only when they overlap</b> and shows the agreed value; red = no overlap and the tunnel fails; grey = not configured yet or a non-fatal mismatch.
+      (6) <b>Learning aids:</b> the four steps <b>1 Reach → 2 Agree → 3 Trust → 4 Protect</b> (click one to focus on it); <b>Complete the peer</b> mode (R1 is locked, you build R3); <b>Feedback: After Apply</b> hides the lines until you test; <b>Predict first</b> asks for your prediction before each Apply.
+      Try the <b>Concepts</b> view and the scenarios at the top.
+    </div>
+  </main>
+</div>
+
+<script src="../v3-three-router/js/ios-pqc-engine.js?v=20261008b"></script>
+<script src="../v3-three-router/js/lab-topology.js?v=20261003b"></script>
+<script>
+(function () {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const ROUTERS = {
+    r1: { host: 'R1', role: 'Spoke-1', wan: 'TwoGigabitEthernet0/0/0', ip: '10.0.12.1', peerNet: '10.0.23.0', nh: '10.0.12.2' },
+    r3: { host: 'R3', role: 'Spoke-2', wan: 'TwoGigabitEthernet0/0/0', ip: '10.0.23.2', peerNet: '10.0.12.0', nh: '10.0.23.1' },
+  };
+  const BASE = { dst: '', tunIp: '', route: true, peer: '', pskL: 'C1sco12345psk', pskR: 'C1sco12345psk', ts: ['esp-gcm 256'], enc: ['aes-cbc-256'], integ: ['sha512'], group: ['20'], pqc: [], opt: true, frag: true, pfs: false };
+  const PRESETS = {
+    classic: { r1: {}, r3: {} },
+    almost: { r1: { pqc: ['mlkem768'], opt: true }, r3: { pskL: 'C1sco12345PSK' } },
+    asym: { r1: { pskL: 'R1-secret', pskR: 'R3-secret' }, r3: { pskL: 'R3-secret', pskR: 'R1-secret' } },
+    ikeonly: { r1: { ts: ['esp-gcm 256'] }, r3: { ts: ['esp-aes 256 esp-sha256-hmac'] } },
+    prefs: { r1: { enc: ['aes-cbc-256', 'aes-cbc-128'], integ: ['sha512', 'sha384'], group: ['21', '20'], pqc: ['mlkem1024', 'mlkem768'], opt: true, pfs: true, ts: ['esp-gcm 128', 'esp-gcm 256'] },
+             r3: { enc: ['aes-cbc-128', 'aes-cbc-256'], integ: ['sha384'], group: ['20', '19'], pqc: ['mlkem768'], opt: true, pfs: true, ts: ['esp-gcm 256', 'esp-aes 256 esp-sha256-hmac'] } },
+    nomatch: { r1: { group: ['21', '20'] }, r3: { group: ['19', '14'] } },
+    'pqc-one': { r1: { pqc: ['mlkem768'], opt: true }, r3: {} },
+    enforce: { r1: { pqc: ['mlkem768'], opt: false }, r3: {} },
+    full: { r1: { pqc: ['mlkem768'], opt: true, pfs: true }, r3: { pqc: ['mlkem768'], opt: true, pfs: true } },
+  };
+  let cfg, neg = {};
+  /* learning-design state */
+  const CHUNKS = [
+    { id: 'reach', n: 1, label: 'Reach', q: 'Can the two routers talk?' },
+    { id: 'agree', n: 2, label: 'Agree', q: 'Which crypto will we use?' },
+    { id: 'trust', n: 3, label: 'Trust', q: 'Who are you, really?' },
+    { id: 'protect', n: 4, label: 'Protect', q: 'How is the data encrypted?' },
+  ];
+  const RULE_CHUNK = { route: 'reach', ends: 'reach', prop: 'agree', pqc: 'agree', frag: 'agree', id: 'trust', psk: 'trust', ts: 'protect', tun: 'protect', pfs: 'protect' };
+  const BLOCK_CHUNK = { tunnel: 'reach', route: 'reach', prop: 'agree', frag: 'agree', ike: 'trust', ipsec: 'protect', ts: 'protect' };
+  let mode = 'explore', feedback = 'live', revealed = false, focusChunk = null;
+  const pstats = { n: 0, ok: 0 };
+  const chunkOf = id => CHUNKS.find(c => c.id === id);
+  function load(name) {
+    // JSON round-trip, not structuredClone: structuredClone keeps BASE's arrays shared between R1 and R3
+    const own = o => JSON.parse(JSON.stringify(o));
+    cfg = {
+      r1: own({ ...BASE, dst: '10.0.23.2', tunIp: '192.168.100.1', peer: '10.0.23.2', ...PRESETS[name].r1 }),
+      r3: own({ ...BASE, dst: '10.0.12.1', tunIp: '192.168.100.2', peer: '10.0.12.1', ...PRESETS[name].r3 }),
+    };
+    if (mode === 'complete') {
+      cfg.r1 = own({ ...BASE, dst: '10.0.23.2', tunIp: '192.168.100.1', peer: '10.0.23.2', pqc: ['mlkem768'], opt: true, pfs: true });
+      cfg.r3 = { dst: '', tunIp: '', route: false, peer: '', pskL: '', pskR: '', ts: [], enc: [], integ: [], group: [], pqc: [], opt: false, frag: false, pfs: false };
+    }
+    revealed = false; renderBlocks(); update(); $('#result').className = 'result';
+  }
+
+  /* ───────── blocks ───────── */
+  const sel = (k, f, opts) => `<span class="f" data-f="${k}-${f}"><select data-k="${k}" data-field="${f}">${opts.map(o => `<option value="${o[0]}"${cfg[k][f] === o[0] ? ' selected' : ''}>${o[1]}</option>`).join('')}</select></span>`;
+  const txt = (k, f, w) => `<span class="f" data-f="${k}-${f}"><input type="text" data-k="${k}" data-field="${f}" value="${esc(cfg[k][f])}"${w ? ` style="width:${w}px"` : ''} spellcheck="false"></span>`;
+  // multi-value list: click toggles, order of selection = preference order (as typed in IOS)
+  const multi = (k, f, opts) => `<span class="f multi" data-f="${k}-${f}">${opts.map(o => `<button type="button" class="copt" data-mk="${k}" data-mf="${f}" data-v="${o[0]}" title="${o[2] || o[1]}"><span class="ord"></span>${o[1]}</button>`).join('')}</span>`;
+  const chk = (k, f) => `<span class="f" data-f="${k}-${f}"><input type="checkbox" data-k="${k}" data-field="${f}"${cfg[k][f] ? ' checked' : ''}></span>`;
+  const hd = (ios, concept, name, ck) => { const c = chunkOf(ck); return `<div class="hd"><span class="ckb ck-${ck}" title="Step ${c.n}: ${c.label} — ${c.q}">${c.n} ${c.label}</span><span class="ttl-ios">${ios}</span><span class="ttl-concept">${concept}</span><span class="nm">${name}</span></div>`; };
+  function renderBlocks() {
+    for (const k of ['r1', 'r3']) {
+      const R = ROUTERS[k];
+      $('#ws-' + k).innerHTML = `
+        <div class="ws-head"><b>${R.host}</b><span>${R.role}</span>${mode === 'complete' && k === 'r1' ? '<span class="lock">🔒 reference</span>' : ''}${mode === 'complete' && k === 'r3' ? '<span class="lock">✎ your turn</span>' : ''}<span class="chip">WAN ${R.ip}</span></div>
+        <div class="blk tunnel" data-b="${k}-tunnel">${hd('Tunnel', 'The tunnel — where protected traffic goes', 'Tunnel0', 'reach')}
+          <div class="bd">
+            <div class="row"><label>source</label><span class="f" data-f="${k}-src"><span class="ro">${R.wan.replace('TwoGigabitEthernet', 'Tw')} · ${R.ip}</span></span></div>
+            <div class="row"><label>destination</label>${txt(k, 'dst')}</div>
+            <div class="row adv"><label>tunnel IP /24</label>${txt(k, 'tunIp')}</div>
+            <div class="socket"><div class="lbl">protected by ▾</div>
+              <div class="blk ipsec" data-b="${k}-ipsec">${hd('IPsec profile', 'Protection policy', 'IPSEC-1', 'protect')}
+                <div class="bd">
+                  <div class="row"><label>PFS on rekey</label>${chk(k, 'pfs')}<span class="hint">set pfs</span></div>
+                  <div class="socket"><div class="lbl">data encryption ▾</div>
+                    <div class="blk ts" data-b="${k}-ts">${hd('Transform sets', 'How the data is encrypted (ESP)', 'TS list', 'protect')}
+                      <div class="bd"><div class="multi-help">Priority order · one transform set per chip</div><div class="row"><label>ESP</label>${multi(k, 'ts', [['esp-gcm 256', 'esp-gcm 256'], ['esp-gcm 128', 'esp-gcm 128'], ['esp-aes 256 esp-sha256-hmac', 'esp-aes 256 + sha256']])}</div></div>
+                    </div>
+                  </div>
+                  <div class="socket"><div class="lbl">peer & identity ▾</div>
+                    <div class="blk ike" data-b="${k}-ike">${hd('IKEv2 profile + keyring', 'Who my peer is & how we prove it', 'PROF-1 / KR-1', 'trust')}
+                      <div class="bd">
+                        <div class="row"><label>remote peer</label>${txt(k, 'peer')}</div>
+                        <div class="row"><label>my key (local)</label>${txt(k, 'pskL', 150)}</div>
+                        <div class="row"><label>peer's key (remote)</label>${txt(k, 'pskR', 150)}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="blk prop" data-b="${k}-prop">${hd('IKEv2 proposal', 'How we agree on the keys (IKE)', 'PROP-1 + POL-1', 'agree')}
+          <div class="bd">
+            <div class="multi-help">Click to add/remove · the number is the preference order</div>
+            <div class="row"><label>encryption</label>${multi(k, 'enc', [['aes-cbc-256', 'aes-cbc-256'], ['aes-cbc-192', 'aes-cbc-192'], ['aes-cbc-128', 'aes-cbc-128']])}</div>
+            <div class="row adv"><label>integrity</label>${multi(k, 'integ', [['sha512', 'sha512'], ['sha384', 'sha384'], ['sha256', 'sha256']])}</div>
+            <div class="row"><label>DH group</label>${multi(k, 'group', [['21', '21', 'ECDH P-521'], ['20', '20', 'ECDH P-384'], ['19', '19', 'ECDH P-256'], ['14', '14', 'MODP-2048']])}</div>
+            <div class="row"><label>post-quantum</label>${multi(k, 'pqc', [['mlkem1024', 'ML-KEM-1024'], ['mlkem768', 'ML-KEM-768'], ['mlkem512', 'ML-KEM-512']])}</div>
+            <div class="row"><label></label><label style="min-width:0">${chk(k, 'opt')} optional <span class="hint">(fallback to classical allowed)</span></label></div>
+          </div>
+        </div>
+        <div class="blk frag adv" data-b="${k}-frag">${hd('IKEv2 fragmentation', 'Split big PQC messages', 'mtu 1400', 'agree')}
+          <div class="bd"><div class="row"><label>enabled</label>${chk(k, 'frag')}<span class="hint">recommended with ML-KEM</span></div></div>
+        </div>
+        <div class="blk route" data-b="${k}-route">${hd('Static route', 'How to reach the peer', '', 'reach')}
+          <div class="bd"><div class="row"><label>to ${R.peerNet}/24</label>${chk(k, 'route')}<span class="ro">via ${R.nh} (R2)</span></div></div>
+        </div>`;
+    }
+    $('#ws-r1').classList.toggle('locked', mode === 'complete');
+    $('#ws-r1').querySelectorAll('input,select').forEach(el => { el.disabled = mode === 'complete'; });
+    document.querySelectorAll('.blk').forEach(b => { b.dataset.chunk = BLOCK_CHUNK[b.dataset.b.slice(3)]; });
+    document.querySelectorAll('[data-field]').forEach(el => el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', () => {
+      cfg[el.dataset.k][el.dataset.field] = el.type === 'checkbox' ? el.checked : el.value; edited();
+    }));
+    document.querySelectorAll('.copt').forEach(btn => btn.addEventListener('click', () => {
+      const list = cfg[btn.dataset.mk][btn.dataset.mf], v = btn.dataset.v, i = list.indexOf(v);
+      if (i >= 0) list.splice(i, 1); else list.push(v);
+      edited();
+    }));
+    document.querySelectorAll('.blk').forEach(b => {
+      b.addEventListener('mouseenter', e => { e.stopPropagation(); highlightIos(b.dataset.b); });
+      b.addEventListener('mouseleave', () => highlightIos(null));
+    });
+  }
+
+  /* ───────── agreement rules (same logic as the v3 engine) ───────── */
+  const net24 = ip => ip.split('.').slice(0, 3).join('.');
+  function rules() {
+    const a = cfg.r1, b = cfg.r3, out = [];
+    const add = (id, phase, title, status, msg, pairs = [], fields = []) => out.push({ id, phase, title, status, msg, pairs, fields });
+    // 1 routes
+    add('route', 'underlay', 'Peers can reach each other', a.route && b.route ? 'ok' : 'fail',
+      a.route && b.route ? 'Both spokes route the other WAN subnet via R2.' : `${!a.route ? 'R1' : 'R3'} has no route to the peer's WAN: IKE packets never arrive.`, [], [!a.route && 'r1-route', !b.route && 'r3-route'].filter(Boolean));
+    // 2 endpoints mirror
+    const m1 = a.dst === ROUTERS.r3.ip, m3 = b.dst === ROUTERS.r1.ip;
+    add('ends', 'underlay', 'Tunnel endpoints mirror', m1 && m3 ? 'ok' : 'fail',
+      m1 && m3 ? 'R1 → 10.0.23.2 and R3 → 10.0.12.1: each destination is the other\'s source.' : `Destination must be the peer's WAN address (${!m1 ? 'R1 should point to 10.0.23.2' : 'R3 should point to 10.0.12.1'}).`,
+      [['r1-dst', 'r3-src', m1 ? 'ok' : 'fail'], ['r1-src', 'r3-dst', m3 ? 'ok' : 'fail']], [!m1 && 'r1-dst', !m3 && 'r3-dst'].filter(Boolean));
+    // 3 proposal overlap — lists: the first entry in the initiator's (R1) order that R3 also accepts wins
+    const pick = (x, y) => ({ common: x.filter(v => y.includes(v)), chosen: x.find(v => y.includes(v)) });
+    // line for a list field: green + agreed value only when the lists overlap
+    const listLine = (f, n, fmt = v => v, softFail) => [`r1-${f}`, `r3-${f}`,
+      n.chosen ? 'ok' : (!a[f].length || !b[f].length || softFail) ? 'neutral' : 'fail', n.chosen ? fmt(n.chosen) : ''];
+    const ne = pick(a.enc, b.enc), ni = pick(a.integ, b.integ), ng = pick(a.group, b.group);
+    neg = { enc: ne, integ: ni, group: ng };
+    const e = !!ne.chosen, i = !!ni.chosen, g = !!ng.chosen;
+    const empty = [['enc', 'encryption'], ['integ', 'integrity'], ['group', 'DH group']].filter(([f]) => !a[f].length || !b[f].length);
+    add('prop', 'IKE_SA_INIT', 'Proposals overlap', e && i && g ? 'ok' : 'fail',
+      empty.length ? `Incomplete proposal: every peer needs at least one ${empty.map(x => x[1]).join(', ')}.`
+        : e && i && g ? `Negotiated <b>${ne.chosen}</b> / <b>${ni.chosen}</b> / <b>DH ${ng.chosen}</b>. R1 initiates, so the first value in R1's list that R3 also accepts wins.`
+        : `No value in common for ${[!e && 'encryption', !i && 'integrity', !g && 'DH group'].filter(Boolean).join(', ')} → NO_PROPOSAL_CHOSEN.`,
+      [listLine('enc', ne), listLine('integ', ni), listLine('group', ng, v => 'DH ' + v)], []);
+    // 4 PQC matrix — `pqc <list> [optional]`
+    const np = pick(a.pqc, b.pqc); neg.pqc = np;
+    const common = np.chosen;
+    const LBL = { mlkem512: 'ML-KEM-512', mlkem768: 'ML-KEM-768', mlkem1024: 'ML-KEM-1024' };
+    const enfA = a.pqc.length && !a.opt, enfB = b.pqc.length && !b.opt;
+    let ps, pm;
+    if (common) { ps = 'ok'; pm = `Hybrid ECDH + <b>${LBL[common]}</b>: quantum-safe key exchange${a.pqc.length > 1 || b.pqc.length > 1 ? ' (first ML-KEM in R1\'s list that R3 also offers)' : ''}.`; }
+    else if (enfA || enfB) { ps = 'fail'; pm = `${enfA ? 'R1' : 'R3'} enforces ML-KEM (no "optional") but ${enfA ? 'R3' : 'R1'} offers no common ML-KEM variant → session fails.`; }
+    else if (a.pqc.length || b.pqc.length) { ps = 'warn'; pm = a.pqc.length && b.pqc.length ? 'Both offer ML-KEM but no variant in common; "optional" lets the tunnel fall back to classical DH: up, but not quantum-safe.' : `Only ${a.pqc.length ? 'R1' : 'R3'} offers ML-KEM; "optional" lets the tunnel fall back to classical DH: up, but not quantum-safe.`; }
+    else { ps = 'info'; pm = 'Classical ECDH only: works today, exposed to "harvest now, decrypt later".'; }
+    add('pqc', 'IKE_SA_INIT', 'Post-quantum key exchange', ps, pm, [listLine('pqc', np, v => LBL[v], ps !== 'fail')], []);
+    // 5 fragmentation
+    if (common) {
+      const fr = a.frag && b.frag;
+      add('frag', 'IKE_INTERMEDIATE', 'IKEv2 fragmentation', fr ? 'ok' : 'warn', fr ? 'Both peers fragment large PQC messages at 1400 bytes.' : 'Recommended on both peers with ML-KEM: otherwise large IKE messages rely on IP fragmentation.', [['r1-frag', 'r3-frag', fr ? 'ok' : 'warn']], [!a.frag && 'r1-frag', !b.frag && 'r3-frag'].filter(Boolean));
+    }
+    // 6 identity
+    const id1 = a.peer === ROUTERS.r3.ip, id3 = b.peer === ROUTERS.r1.ip;
+    add('id', 'IKE_AUTH', 'Identities match', id1 && id3 ? 'ok' : 'fail', id1 && id3 ? 'Each profile accepts the other peer\'s address.' : `${!id1 ? 'R1' : 'R3'}'s "remote peer" must be the other router's WAN address.`,
+      [['r1-peer', 'r3-src', id1 ? 'ok' : 'fail'], ['r1-src', 'r3-peer', id3 ? 'ok' : 'fail']], [!id1 && 'r1-peer', !id3 && 'r3-peer'].filter(Boolean));
+    // 7 psk — IKEv2 allows a different key per direction: my local key must equal the peer's remote key
+    const k13 = !!a.pskL && a.pskL === b.pskR, k31 = !!b.pskL && b.pskL === a.pskR;
+    const sym = a.pskL === a.pskR && b.pskL === b.pskR;
+    add('psk', 'IKE_AUTH', 'Keys match crosswise', k13 && k31 ? 'ok' : 'fail',
+      k13 && k31 ? (sym ? 'Same key in both directions: authentication succeeds.' : 'Asymmetric keys: R1 signs with its local key, R3 checks it with its remote key (and vice versa). Authentication succeeds.')
+        : `${!k13 ? 'R1\'s local key ≠ R3\'s remote key' : 'R3\'s local key ≠ R1\'s remote key'} (keys are case-sensitive) → AUTHENTICATION_FAILED.`,
+      [['r1-pskL', 'r3-pskR', k13 ? 'ok' : 'fail'], ['r1-pskR', 'r3-pskL', k31 ? 'ok' : 'fail']], [!k13 && 'r1-pskL', !k13 && 'r3-pskR', !k31 && 'r3-pskL', !k31 && 'r1-pskR'].filter(Boolean));
+    // 8 transform sets — list in priority order, initiator (R1) order wins
+    const nt = pick(a.ts, b.ts); neg.ts = nt;
+    const ts = !!nt.chosen;
+    add('ts', 'CHILD_SA', 'Transform sets overlap', ts ? 'ok' : 'fail', !a.ts.length || !b.ts.length ? 'Each IPsec profile needs at least one transform set.' : ts ? `Data protected with <b>${nt.chosen}</b>${a.ts.length > 1 || b.ts.length > 1 ? ' (first in R1\'s list that R3 also has)' : ''}.` : 'No transform set in common → the IKE SA still comes up (READY), but no IPsec SA is created: <b>no traffic passes</b>.', [listLine('ts', nt)], []);
+    // 9 tunnel subnet
+    const sn = net24(a.tunIp) === net24(b.tunIp) && a.tunIp !== b.tunIp;
+    add('tun', 'overlay', 'Tunnel addresses on one subnet', sn ? 'ok' : 'fail', sn ? `${net24(a.tunIp)}.0/24 on both ends.` : 'Tunnel IPs must be different addresses in the same /24.', [['r1-tunIp', 'r3-tunIp', sn ? 'ok' : 'fail']], sn ? [] : ['r1-tunIp', 'r3-tunIp']);
+    // 10 PFS (simplified Table 1: both "set pfs" or neither)
+    const pfs = a.pfs === b.pfs;
+    add('pfs', 'rekey', 'PFS settings compatible', pfs ? (a.pfs ? 'ok' : 'info') : 'warn',
+      pfs ? (a.pfs ? 'Both "set pfs": rekeys inherit DH + ML-KEM from the IKE SA.' : 'No PFS: rekeys reuse keys derived from the IKE SA.') : 'Mismatch: the tunnel comes up, but a rekey initiated by the side with PFS fails (NO_PROPOSAL_CHOSEN).',
+      [['r1-pfs', 'r3-pfs', pfs ? (a.pfs ? 'ok' : 'info') : 'warn']], pfs ? [] : [a.pfs ? 'r3-pfs' : 'r1-pfs']);
+    return out;
+  }
+
+  /* ───────── IOS generator ───────── */
+  function ios(k) {
+    const c = cfg[k], R = ROUTERS[k], L = [];
+    const push = (txt, blk) => L.push({ txt, blk: k + '-' + blk });
+    push('! generated from blocks', 'none');
+    if (c.frag) push('crypto ikev2 fragmentation mtu 1400', 'frag');
+    push('crypto ikev2 proposal PROP-1', 'prop');
+    if (c.pqc.length) push(` pqc ${c.pqc.join(' ')}${c.opt ? ' optional' : ''}`, 'prop');
+    if (c.enc.length) push(` encryption ${c.enc.join(' ')}`, 'prop');
+    if (c.integ.length) push(` integrity ${c.integ.join(' ')}`, 'prop');
+    if (c.group.length) push(` group ${c.group.join(' ')}`, 'prop');
+    push('crypto ikev2 policy POL-1', 'prop'); push(' proposal PROP-1', 'prop');
+    push('crypto ikev2 keyring KR-1', 'ike'); push(' peer PEER', 'ike'); push(`  address ${c.peer}`, 'ike');
+    if (c.pskL === c.pskR) push(`  pre-shared-key ${c.pskL}`, 'ike'); else { push(`  pre-shared-key local ${c.pskL}`, 'ike'); push(`  pre-shared-key remote ${c.pskR}`, 'ike'); }
+    push('crypto ikev2 profile PROF-1', 'ike'); push(` match identity remote address ${c.peer} 255.255.255.255`, 'ike');
+    push(' authentication remote pre-share', 'ike'); push(' authentication local pre-share', 'ike'); push(' keyring local KR-1', 'ike');
+    const TSN = { 'esp-gcm 256': 'TS-GCM256', 'esp-gcm 128': 'TS-GCM128', 'esp-aes 256 esp-sha256-hmac': 'TS-AES256' };
+    for (const t of c.ts) { push(`crypto ipsec transform-set ${TSN[t]} ${t}`, 'ts'); push(' mode tunnel', 'ts'); }
+    push('crypto ipsec profile IPSEC-1', 'ipsec'); if (c.ts.length) push(` set transform-set ${c.ts.map(t => TSN[t]).join(' ')}`, 'ipsec'); push(' set ikev2-profile PROF-1', 'ipsec');
+    if (c.pfs) push(' set pfs', 'ipsec');
+    push('interface Tunnel0', 'tunnel'); push(` ip address ${c.tunIp} 255.255.255.0`, 'tunnel'); push(` tunnel source ${R.wan}`, 'tunnel');
+    push(` tunnel destination ${c.dst}`, 'tunnel'); push(' tunnel mode ipsec ipv4', 'tunnel'); push(' tunnel protection ipsec profile IPSEC-1', 'tunnel');
+    if (c.route) push(`ip route ${R.peerNet} 255.255.255.0 ${R.nh}`, 'route');
+    return L;
+  }
+  let iosDev = 'r1';
+  function renderIos() {
+    const hl = s => esc(s).replace(/^(\s*)(crypto|interface|ip route|tunnel|set|match|authentication|keyring|peer|pqc|encryption|integrity|group|proposal|address|pre-shared-key|mode|ip address)\b/, '$1<span class="kw">$2</span>')
+      .replace(/\b(PROP-1|POL-1|KR-1|PROF-1|TS-GCM256|TS-GCM128|TS-AES256|IPSEC-1|PEER|Tunnel0)\b/g, '<span class="nm">$1</span>');
+    $('#ios').innerHTML = ios(iosDev).map(l => `<span class="ln" data-blk="${l.blk}">${l.txt.startsWith('!') ? `<span class="cm">${esc(l.txt)}</span>` : hl(l.txt)}</span>`).join('');
+  }
+  function highlightIos(blk) {
+    if (blk && blk.slice(0, 2) !== iosDev) { iosDev = blk.slice(0, 2); setTab(); renderIos(); }
+    document.querySelectorAll('#ios .ln').forEach(l => l.classList.toggle('hl', !!blk && l.dataset.blk === blk));
+    // scroll only inside the IOS panel — never the page (scrollIntoView would move the whole window)
+    const first = blk && document.querySelector(`#ios .ln[data-blk="${blk}"]`);
+    if (first) { const pre = $('#ios'); const top = first.getBoundingClientRect().top - pre.getBoundingClientRect().top + pre.scrollTop; if (top < pre.scrollTop || top > pre.scrollTop + pre.clientHeight - 20) pre.scrollTop = Math.max(0, top - 30); }
+  }
+  function setTab() { for (const k of ['r1', 'r3']) $('#tab-' + k).setAttribute('aria-selected', k === iosDev); }
+
+  /* ───────── checklist + lines ───────── */
+  const ICON = { ok: '✓', warn: '!', fail: '✕', info: 'i' };
+  let current = [];
+  const showFb = () => feedback === 'live' || revealed;
+  function edited() { revealed = false; $('#result').className = 'result'; update(); }
+  function chunkStatus(ck) {
+    const rs = current.filter(r => RULE_CHUNK[r.id] === ck);
+    return rs.some(r => r.status === 'fail') ? 'fail' : rs.some(r => r.status === 'warn') ? 'warn' : 'ok';
+  }
+  function renderChunks() {
+    $('#chunks').innerHTML = CHUNKS.map(c => {
+      const st = showFb() ? chunkStatus(c.id) : 'hidden';
+      return `<button class="chunk ${st}" data-ck="${c.id}" aria-pressed="${focusChunk === c.id}" title="Click to focus on this step"><span class="num" style="background:var(--ck-${c.id})">${c.n}</span><b>${c.label}</b><small>${c.q}</small><span class="st">${{ ok: '✓', warn: '!', fail: '✕', hidden: '?' }[st]}</span></button>`;
+    }).join('');
+    $('#chunks').querySelectorAll('.chunk').forEach(b => b.addEventListener('click', () => { focusChunk = focusChunk === b.dataset.ck ? null : b.dataset.ck; update(); }));
+    document.querySelectorAll('.blk').forEach(b => b.classList.toggle('dim', !!focusChunk && b.dataset.chunk !== focusChunk));
+  }
+  function update() {
+    current = rules();
+    const visible = current.filter(r => !focusChunk || RULE_CHUNK[r.id] === focusChunk);
+    const okN = current.filter(r => r.status === 'ok').length;
+    $('#score').textContent = showFb() ? `${okN}/${current.length} agreed` : 'hidden until Apply';
+    if (showFb()) {
+      $('#checks').innerHTML = CHUNKS.map(c => {
+        const rs = visible.filter(r => RULE_CHUNK[r.id] === c.id); if (!rs.length) return '';
+        return `<li class="grp" style="color:var(--ck-${c.id})"><i style="background:var(--ck-${c.id})"></i>${c.n} · ${c.label}</li>` +
+          rs.map(r => `<li class="${r.status}" data-r="${r.id}"><span class="ic">${ICON[r.status]}</span><span class="t">${r.title}<span class="ph">${r.phase}</span></span><span class="m">${r.msg}</span></li>`).join('');
+      }).join('');
+    } else {
+      $('#checks').innerHTML = `<li class="hidden-fb">Feedback is set to <b>After Apply</b>. Check the agreement between R1 and R3 yourself, step by step (Reach → Agree → Trust → Protect), then press <b>▶ Apply</b> to see the lines and the checklist.</li>`;
+    }
+    $('#checks').querySelectorAll('li[data-r]').forEach(li => {
+      li.addEventListener('mouseenter', () => drawLines(li.dataset.r));
+      li.addEventListener('mouseleave', () => drawLines(null));
+    });
+    document.querySelectorAll('.f').forEach(f => f.classList.remove('bad', 'wrn', 'agree'));
+    if (showFb()) for (const r of current) for (const f of r.fields) { const el = document.querySelector(`[data-f="${f}"]`); if (el && !el.classList.contains('multi')) el.classList.add(r.status === 'fail' ? 'bad' : 'wrn'); }
+    renderChunks(); paintChips(); renderIos(); drawLines(null); renderGoal();
+  }
+  function renderGoal() {
+    const g = $('#goal');
+    if (mode !== 'complete') { g.hidden = true; return; }
+    g.hidden = false;
+    if (g.classList.contains('done')) return;
+    g.innerHTML = `<b>Goal:</b> R1 is the reference (locked). Build <b>R3</b> so that the tunnel comes up with a <b>quantum-safe (ML-KEM)</b> key exchange.
+      Work one step at a time: <b>1 Reach</b> → <b>2 Agree</b> → <b>3 Trust</b> → <b>4 Protect</b>. Click a step above to focus on its blocks, then <b>▶ Apply</b> to test.`;
+  }
+  function paintChips() {
+    document.querySelectorAll('.copt').forEach(btn => {
+      const k = btn.dataset.mk, f = btn.dataset.mf, v = btn.dataset.v, list = cfg[k][f], i = list.indexOf(v), n = neg[f] || { common: [] };
+      btn.classList.toggle('sel', i >= 0);
+      btn.querySelector('.ord').textContent = i >= 0 ? i + 1 : '';
+      btn.setAttribute('aria-pressed', i >= 0);
+      btn.title = i < 0 ? 'Click to add to this router\'s preferences' : `Preference #${i + 1} — click to remove`;
+    });
+  }
+  function drawLines(focusId) {
+    const svg = $('#lines'), stage = $('#stage').getBoundingClientRect();
+    document.querySelectorAll('.f.focus').forEach(f => f.classList.remove('focus'));
+    let h = '';
+    if (!showFb()) { svg.innerHTML = ''; return; }
+    for (const r of current) for (const [fa, fb, st, label] of r.pairs) {
+      if (focusChunk && RULE_CHUNK[r.id] !== focusChunk) continue;
+      const A = document.querySelector(`[data-f="${fa}"]`), B = document.querySelector(`[data-f="${fb}"]`);
+      if (!A || !B || !A.offsetParent || !B.offsetParent) continue;
+      const ra = A.getBoundingClientRect(), rb = B.getBoundingClientRect();
+      const w1 = $('#ws-r1').getBoundingClientRect(), w3 = $('#ws-r3').getBoundingClientRect();
+      // anchor on the workspace edges at the field's height, so lines never cross the blocks
+      const x1 = w1.right - stage.left, y1 = ra.top + ra.height / 2 - stage.top, x2 = w3.left - stage.left, y2 = rb.top + rb.height / 2 - stage.top;
+      const dx = (x2 - x1) * 0.5;
+      const cls = st + (focusId && focusId === r.id ? ' hl' : '');
+      if (focusId && focusId !== r.id) continue;
+      if (focusId) { A.classList.add('focus'); B.classList.add('focus'); }
+      h += `<path class="${cls}" d="M${x1},${y1} C${x1 + dx},${y1} ${x2 - dx},${y2} ${x2},${y2}"/><circle class="${st}" cx="${x1}" cy="${y1}"/><circle class="${st}" cx="${x2}" cy="${y2}"/>`;
+      if (label && st === 'ok') { const mx = (x1 + x2) / 2, my = (y1 + y2) / 2, w = label.length * 6.6 + 12; h += `<rect class="tagbg" x="${mx - w / 2}" y="${my - 9}" width="${w}" height="18" rx="9"/><text class="tag" x="${mx}" y="${my + 4}" text-anchor="middle">${esc(label)}</text>`; }
+    }
+    svg.innerHTML = h;
+  }
+
+  /* ───────── apply to the real simulator ───────── */
+  const PRED = [['up-pqc', 'Tunnel up — quantum-safe (ML-KEM)'], ['up-classic', 'Tunnel up — classical only'], ['ike-only', 'IKE SA up, but no traffic'], ['down', 'Tunnel down']];
+  $('#apply').addEventListener('click', () => {
+    if (!$('#t-predict').checked) return runApply(null);
+    const res = $('#result');
+    res.className = 'result show'; res.style.padding = '0';
+    res.innerHTML = `<div class="predict"><p>Before you apply: what do you predict will happen?</p><div class="opts">${PRED.map(p => `<button data-p="${p[0]}">${p[1]}</button>`).join('')}<button class="skip" data-p="">Skip</button></div></div>`;
+    res.querySelectorAll('button').forEach(b => b.addEventListener('click', () => { res.style.padding = ''; runApply(b.dataset.p || null); }));
+  });
+  function runApply(prediction) {
+    const res = $('#result');
+    if (!window.PqcLab) { res.className = 'result show fail'; res.textContent = 'Simulator engine not found (serve this page from the Spotlight-PQC folder).'; return; }
+    let t = Date.now();
+    const lab = new PqcLab.Lab(window.LAB_TOPOLOGY, { now: () => t });
+    for (const k of ['r1', 'r3']) {
+      lab.exec(k, 'enable'); lab.exec(k, 'configure terminal');
+      for (const l of ios(k)) if (!l.txt.startsWith('!')) lab.exec(k, l.txt.trim());
+      lab.exec(k, 'end');
+    }
+    t += 2000; lab.tick();
+    const sa = lab.saBetween('r1', 'r3'), st = lab.pairBetween('r1', 'r3');
+    const outcome = sa ? (sa.child.down ? 'ike-only' : sa.params.pqc ? 'up-pqc' : 'up-classic') : 'down';
+    let verdict = '';
+    if (prediction) {
+      pstats.n++; if (prediction === outcome) pstats.ok++;
+      $('#pscore').textContent = `Predictions: ${pstats.ok}/${pstats.n} correct`;
+      verdict = prediction === outcome ? `<span class="verdict-line">🎯 Your prediction was right.</span>`
+        : `<span class="verdict-line">🤔 You predicted "${PRED.find(p => p[0] === prediction)[1]}". Look at the checklist: which step explains the difference?</span>`;
+    }
+    revealed = true; update();
+    const show = lab.exec('r1', 'show crypto ikev2 sa').lines.map(l => l.text).filter(Boolean).slice(0, 6).join('\n');
+    if (sa && sa.child.down) {
+      res.className = 'result show fail';
+      res.innerHTML = verdict + `<b>⚠ IKE SA up, IPsec SA down</b>: ${esc(sa.child.err)}<pre>R1# show crypto ikev2 sa\n${esc(show)}\n\nR1# ping 192.168.100.2\n${esc(lab.exec('r1', 'ping 192.168.100.2').lines.map(l => l.text).slice(2, 4).join('\n'))}</pre>`;
+    } else if (sa) {
+      const p = sa.params;
+      res.className = 'result show ok';
+      if (mode === 'complete' && p.pqc) { const g = $('#goal'); g.classList.add('done'); g.innerHTML = '🎉 <b>Done!</b> R3 now mirrors R1 and the tunnel is up with a quantum-safe key exchange. Try <b>Feedback: After Apply</b> and do it again without the lines.'; }
+      res.innerHTML = verdict + `<b>✓ Tunnel UP</b> — simulator negotiated <b>${p.enc} / ${p.integ} / DH ${p.group}${p.pqc ? ' + ' + PqcLab.PQC_LABEL[p.pqc] : ''}</b>, ESP <b>${p.esp}</b>: ${p.pqc ? 'hybrid ECDH + ' + PqcLab.PQC_LABEL[p.pqc] + ' (quantum-safe key exchange)' : 'classical DH ' + p.group + ' (not quantum-safe)'}${p.frag ? '' : ' · no IKEv2 fragmentation'}<pre>R1# show crypto ikev2 sa\n${esc(show)}</pre>`;
+    } else {
+      res.className = 'result show fail';
+      res.innerHTML = verdict + `<b>✕ Tunnel DOWN</b>: ${esc(st ? `${st.code}: ${st.err}` : 'the two tunnels do not point at each other (check destination / source).')}`;
+    }
+  }
+
+  /* ───────── toggles ───────── */
+  $('#preset').addEventListener('change', e => load(e.target.value));
+  const seg = (a, b, on) => { $(a).setAttribute('aria-pressed', on); $(b).setAttribute('aria-pressed', !on); };
+  const setMode = m => {
+    mode = m; seg('#m-explore', '#m-complete', m === 'explore');
+    $('#preset').disabled = m === 'complete'; $('#preset-wrap').style.opacity = m === 'complete' ? .45 : 1;
+    $('#goal').classList.remove('done'); focusChunk = null;
+    load(m === 'complete' ? 'full' : $('#preset').value);
+  };
+  $('#m-explore').addEventListener('click', () => setMode('explore'));
+  $('#m-complete').addEventListener('click', () => setMode('complete'));
+  const setFb = f => { feedback = f; seg('#fb-live', '#fb-after', f === 'live'); revealed = false; update(); };
+  $('#fb-live').addEventListener('click', () => setFb('live'));
+  $('#fb-after').addEventListener('click', () => setFb('after'));
+  $('#t-names').addEventListener('change', e => { document.body.classList.toggle('names', e.target.checked); requestAnimationFrame(() => drawLines(null)); });
+  const view = c => { document.body.classList.toggle('concept', c); $('#v-concept').setAttribute('aria-pressed', c); $('#v-ios').setAttribute('aria-pressed', !c); requestAnimationFrame(() => drawLines(null)); };
+  $('#v-concept').addEventListener('click', () => view(true)); $('#v-ios').addEventListener('click', () => view(false));
+  for (const k of ['r1', 'r3']) $('#tab-' + k).addEventListener('click', () => { iosDev = k; setTab(); renderIos(); });
+  window.addEventListener('resize', () => drawLines(null));
+  load('almost');
+})();
+</script>
+</body>
+</html>

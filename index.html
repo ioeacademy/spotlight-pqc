@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spotlight PQC Tutorials</title>
+  <meta name="description" content="Browser-based Cisco IOS XE simulations for learning post-quantum IPsec VPNs.">
+  <style>
+    :root { --bg: #f2f2f2; --panel: #fff; --border: #d4d4d8; --text: #2f2f33; --muted: #6b6b73; --accent: #7c4dff; --soft: #efe9ff; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #1f2528; --panel: #283033; --border: rgba(255,255,255,.14); --text: #eef1f3; --muted: #a3adb5; --accent: #9d7bff; --soft: rgba(124,77,255,.18); } }
+    :root[data-theme="dark"] { --bg: #1f2528; --panel: #283033; --border: rgba(255,255,255,.14); --text: #eef1f3; --muted: #a3adb5; --accent: #9d7bff; --soft: rgba(124,77,255,.18); }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; line-height: 1.5; }
+    main { max-width: 920px; margin: 0 auto; padding: 40px 16px 60px; }
+    h1 { margin: 0 0 4px; font-size: 26px; }
+    .lead { color: var(--muted); margin: 0 0 28px; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 28px 0 10px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+    a.card { display: block; text-decoration: none; color: inherit; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; transition: border-color .15s, transform .15s; }
+    a.card:hover, a.card:focus-visible { border-color: var(--accent); transform: translateY(-1px); outline: none; }
+    a.card.new { border-color: var(--accent); background: linear-gradient(135deg, var(--soft), var(--panel) 70%); }
+    .card b { display: block; font-size: 15px; margin-bottom: 4px; }
+    .card span { font-size: 13px; color: var(--muted); }
+    .tag { display: inline-block; font-size: 10.5px; font-weight: 700; color: #fff; background: var(--accent); border-radius: 99px; padding: 1px 8px; margin-bottom: 8px; }
+    .tag.old { background: var(--muted); }
+    footer { margin-top: 36px; font-size: 12px; color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Spotlight PQC</h1>
+  <p class="lead">Simulated Cisco IOS XE labs in the browser for learning quantum-safe IPsec VPNs. No routers needed.</p>
+
+  <h2>Tutorials</h2>
+  <div class="grid">
+    <a class="card new" href="tutorials/v3-three-router/?track=classic">
+      <span class="tag">Classic VPN</span>
+      <b>Classic Site-to-Site VPN (IKEv2 + VTI)</b>
+      <span>Start here: underlay routing, IKEv2 proposal → policy → keyring → profile → IPsec profile → VTI, and proof that traffic is really encrypted.</span>
+    </a>
+    <a class="card new" href="tutorials/v3-three-router/">
+      <span class="tag">v3 · 3 routers</span>
+      <b>Post-Quantum Key Exchange on Cisco Routers</b>
+      <span>Hands-on reproduction of IPsec Series Part 9: classical → PPK → ML-KEM-768 hybrid, ending with a phased hub-and-spoke migration on R1 / R2 / R3.</span>
+    </a>
+    <a class="card" href="tutorials/v4-blocks/mockup.html">
+      <span class="tag">v4 · prototype</span>
+      <b>VPN Building Blocks</b>
+      <span>Mockup: configure both peers with blocks and see which parameters must agree before writing IOS commands.</span>
+    </a>
+  </div>
+
+  <div id="legacy">
+  <h2>Legacy — known errors</h2>
+  <p class="lead" style="margin:-4px 0 12px;font-size:13px">Kept for reference only. These tutorials route the tunnel destination through the tunnel, use invalid <code>esp-256-aes</code> syntax and unnecessary IKEv1 commands, and treat a ping as proof of encryption. Use the tracks above instead.</p>
+  <h2 style="margin-top:8px">v2 — 2 routers (WASM engine)</h2>
+  <div class="grid">
+    <a class="card" href="tutorials/v2-wasm/StandardVPN.html"><span class="tag old">v2</span><b>IPsec VPN with VTI</b><span>Classical IKEv2 site-to-site baseline.</span></a>
+    <a class="card" href="tutorials/v2-wasm/TutorialPPKmanual.html"><span class="tag old">v2</span><b>Quantum-Safe VPN — IKEv2 PPK</b><span>RFC 8784 Postquantum Preshared Keys.</span></a>
+    <a class="card" href="tutorials/v2-wasm/TutorialMLKEM.html"><span class="tag old">v2</span><b>Quantum-Safe VPN — ML-KEM</b><span>FIPS 203 hybrid key exchange.</span></a>
+  </div>
+
+  <h2>v1 — Alpha (legacy)</h2>
+  <div class="grid">
+    <a class="card" href="tutorials/v1-alpha/pqc-vpn-tutorial/"><span class="tag old">v1</span><b>IKEv2 PPK (Alpha)</b><span>First-generation JS engine.</span></a>
+    <a class="card" href="tutorials/v1-alpha/pqc-vpn-tutorial-mlkem/"><span class="tag old">v1</span><b>ML-KEM (Alpha)</b><span>First-generation JS engine.</span></a>
+  </div>
+  </div>
+  <!-- legacy tutorials are kept locally only; they are not part of the public repository -->
+  <script>if (/github\.io$/.test(location.hostname)) document.getElementById('legacy').remove();</script>
+
+  <footer>Simulated behaviour. Command output is modelled on Cisco IOS XE and on the Cisco Blogs IPsec series by Julio Gomez.</footer>
+</main>
+</body>
+</html>

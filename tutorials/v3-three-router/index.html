@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Post-Quantum Key Exchange — 3-Router Lab</title>
+  <meta name="description" content="Hands-on simulation of IPsec Series Part 9: classical, PPK and ML-KEM-768 IKEv2 on three Cisco IOS XE routers, ending with a phased hub-and-spoke migration.">
+  <link rel="stylesheet" href="css/style.css?v=20261006a">
+</head>
+<body>
+  <header class="lab-nav">
+    <a class="nav-home" href="../../index.html">&larr; Spotlight-PQC</a>
+    <span class="nav-sep"></span>
+    <span class="badge">v3 · 3 routers</span>
+    <h1 class="nav-title">Post-Quantum Key Exchange on Cisco Routers</h1>
+    <span class="nav-spacer"></span>
+    <span class="nav-progress" id="nav-progress" aria-live="polite">0 / 16</span>
+    <button class="btn ghost" id="btn-reset" title="Reset all routers and progress">Reset lab</button>
+  </header>
+
+  <main class="split">
+    <section class="tutorial" id="tutorial" aria-label="Tutorial steps">
+      <div class="tut-head">
+        <div class="tut-kicker">IPsec Series · Part 9 — hands-on</div>
+        <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+      <ol class="steps" id="steps"></ol>
+    </section>
+
+    <div class="divider" id="divider" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize"></div>
+
+    <section class="labpane" aria-label="Lab">
+      <div class="topo-wrap" id="topo-wrap">
+        <div class="topo-toolbar">
+          <span class="legend"><i class="sw classic"></i>Classical</span>
+          <span class="legend"><i class="sw ppk"></i>PPK</span>
+          <span class="legend"><i class="sw pqc"></i>ML-KEM</span>
+          <span class="legend"><i class="sw neg"></i>Negotiating / down</span>
+          <span class="topo-hint">Click a router for its console · click a tunnel to inspect the handshake</span>
+        </div>
+        <svg id="topo" viewBox="70 12 820 270" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Topology: R1, R2 and R3 in a row"></svg>
+      </div>
+      <div class="hresizer" id="hresizer" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+      <div class="console">
+        <div class="tabs" role="tablist" id="tabs"></div>
+        <div class="terms" id="terms"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-bg" id="modal-bg" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <h2 id="modal-title">Handshake inspector</h2>
+        <button class="btn ghost icon" id="modal-close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="js/ios-pqc-engine.js?v=20261008b"></script>
+  <script src="js/lab-topology.js?v=20261006a"></script>
+  <script src="js/tutorial-steps.js?v=20261006a"></script>
+  <script src="js/app.js?v=20261006a"></script>
+</body>
+</html>

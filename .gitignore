@@ -1,0 +1,12 @@
+# Public repo = v3 simulator + v4 blocks mockup only.
+# Everything else in this folder (legacy copies with their own repos, assets, local notes) stays local.
+/*
+!/.gitignore
+!/.nojekyll
+!/.github/
+!/index.html
+!/tutorials/
+/tutorials/*
+!/tutorials/v3-three-router/
+!/tutorials/v4-blocks/
+.DS_Store
