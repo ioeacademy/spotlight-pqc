@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="blocks.css?v=20261009b">
+  <link rel="stylesheet" href="blocks.css?v=20261009f">
 </head>
 <body>
   <header class="bar">
@@ -36,7 +36,7 @@
           <li><span class="rel mir">⇄</span><span><b>Must mirror</b>: my address is your peer address.</span></li>
           <li><span class="rel loc">local</span><span><b>Local only</b>: names are labels inside one router. They don't have to match the peer.</span></li>
         </ul>
-        <p class="hint">Click <span class="eye-inline" aria-hidden="true">👁</span> on any block to see the IOS it becomes.</p>
+        <p class="hint">On every block, <span class="eye-inline" aria-hidden="true">▾</span> collapses or expands its fields and <span class="eye-inline" aria-hidden="true">👁</span> shows the IOS it becomes. Collapse a block and keep 👁 on to read it as configuration only.</p>
       </div>
       <figure class="topo-card" aria-label="Topology">
         <svg id="topo" viewBox="0 0 900 230" role="img" aria-labelledby="topo-t"><title id="topo-t">R1, R2 and R3 in a row, with the tunnel between R1 and R3</title></svg>
@@ -64,7 +64,7 @@
     <div class="rows" id="rows"></div>
 
     <section class="test" id="test" aria-labelledby="test-h">
-      <h2 id="test-h"><span class="ck ck-test">5</span> Test in the simulator</h2>
+      <h2 id="test-h"><span class="ck ck-test">5</span> Verify in the simulator</h2>
       <p>The test loads both configurations into the simulated routers, lets R1 start the negotiation and pings through the tunnel. The simulator's negotiation was checked against captures from real IOS XE 26.02 routers.</p>
       <div class="test-row">
         <fieldset class="predict" id="predict"><legend>Predict first</legend></fieldset>
@@ -82,6 +82,6 @@
   </dialog>
 
   <script src="../v3-three-router/js/ios-pqc-engine.js?v=20261009b"></script>
-  <script src="blocks.js?v=20261009b"></script>
+  <script src="blocks.js?v=20261009d"></script>
 </body>
 </html>

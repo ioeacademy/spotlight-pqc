@@ -1,5 +1,5 @@
 /* blocks.js — VPN Block Builder (v6).
-   Learning design: chunking (Reach → Agree → Trust → Protect → Test), dual coding (topology + blocks + IOS),
+   Learning design: chunking (Route → Negotiate → Authenticate → Encrypt → Verify), dual coding (topology + blocks + IOS),
    signalling (each row shows whether a value must MATCH, MIRROR or is LOCAL), worked example → completion →
    troubleshooting starts, and prediction before the simulator test. The test runs the real simulator engine
    (../v3-three-router/js/ios-pqc-engine.js), whose negotiation is checked against IOS XE 26.02 captures. */
@@ -23,10 +23,10 @@
 
   /* ───────── the four steps ───────── */
   const CHUNKS = [
-    { id: 'reach', n: 1, label: 'Reach', q: 'Can the two routers reach each other?', p: 'Each router needs an address on the WAN and a route to the other router\'s WAN address, outside the tunnel. The tunnel\'s endpoints are those WAN addresses.' },
-    { id: 'agree', n: 2, label: 'Agree', q: 'Which algorithms protect the key exchange?', p: 'In IKE_SA_INIT each router offers its proposal. Encryption, integrity and DH group each need at least one value in common, otherwise the answer is NO_PROPOSAL_CHOSEN. The policy only says which proposal to use: its name is local.' },
-    { id: 'trust', n: 3, label: 'Trust', q: 'How does each router prove who it is?', p: 'In IKE_AUTH both routers prove they know the same pre-shared key, and each checks that the peer\'s identity (its WAN address) is one it expects. Addresses mirror: R1\'s peer address is R3\'s own address, and the other way round.' },
-    { id: 'protect', n: 4, label: 'Protect', q: 'How is the traffic itself encrypted?', p: 'The transform set chooses ESP encryption for the data. The IPsec profile bundles it with the IKEv2 profile, and the tunnel interface uses the IPsec profile: anything routed into the tunnel is encrypted.' },
+    { id: 'reach', n: 1, label: 'Route', q: 'Can the two routers reach each other?', p: 'Each router needs an address on the WAN and a route to the other router\'s WAN address, outside the tunnel. The tunnel\'s endpoints are those WAN addresses.' },
+    { id: 'agree', n: 2, label: 'Negotiate', q: 'Which algorithms protect the key exchange?', p: 'In IKE_SA_INIT each router offers its proposal. Encryption, integrity and DH group each need at least one value in common, otherwise the answer is NO_PROPOSAL_CHOSEN. The policy only says which proposal to use: its name is local.' },
+    { id: 'trust', n: 3, label: 'Authenticate', q: 'How does each router prove who it is?', p: 'In IKE_AUTH both routers prove they know the same pre-shared key, and each checks that the peer\'s identity (its WAN address) is one it expects. Addresses mirror: R1\'s peer address is R3\'s own address, and the other way round.' },
+    { id: 'protect', n: 4, label: 'Encrypt', q: 'How is the traffic itself encrypted?', p: 'The transform set chooses ESP encryption for the data. The IPsec profile bundles it with the IKEv2 profile, and the tunnel interface uses the IPsec profile: anything routed into the tunnel is encrypted.' },
   ];
 
   /* ───────── block definitions ─────────
@@ -100,7 +100,7 @@
   };
 
   let cfg, r2 = { ip1: '10.0.12.2', ip2: '10.0.23.1' }, start = 'example', focus = null;
-  const eyes = new Set();
+  const eyes = new Set(), folded = new Set();   // per block: IOS shown / fields collapsed
   function load(name) {
     start = STARTS[name] ? name : 'example';
     cfg = { r1: STARTS[start].r1(), r3: STARTS[start].r3() };
@@ -255,9 +255,9 @@
     const c = cfg[dev][b.key], id = `blk-${dev}-${b.key}`;
     const nameF = b.named ? `<div class="fld"><label for="${fieldId(dev, b.key, 'name')}">Name</label><input type="text" class="mono" id="${fieldId(dev, b.key, 'name')}" data-dev="${dev}" data-b="${b.key}" data-f="name" value="${esc(c.name)}" spellcheck="false" autocomplete="off" placeholder="e.g. ${NAMES[b.key]}"></div>` : '';
     return `<article class="blk" id="${id}" data-dev="${H[dev]}" style="--c: var(--${b.chunk})">
-      <div class="blk-head"><span class="nm" id="${id}-nm"></span><span class="st" id="${id}-st"></span>
+      <div class="blk-head"><button type="button" class="eye fold" data-fold="${dev}:${b.key}" aria-expanded="${!folded.has(dev + ':' + b.key)}" aria-controls="${id}-body" aria-label="Collapse or expand ${H[dev]} ${esc(b.title)}" title="Collapse or expand this block">${folded.has(dev + ':' + b.key) ? '▸' : '▾'}</button><span class="nm" id="${id}-nm"></span><span class="st" id="${id}-st"></span>
         <button type="button" class="eye" data-eye="${dev}:${b.key}" aria-pressed="${eyes.has(dev + ':' + b.key)}" aria-label="Show the IOS for ${H[dev]} ${esc(b.title)}" title="Show the IOS for this block">👁</button></div>
-      <div class="blk-body" id="${id}-body">${nameF}${b.fields.map(f => fieldHtml(dev, b, f)).join('')}</div>
+      <div class="blk-body" id="${id}-body"${folded.has(dev + ':' + b.key) ? ' hidden' : ''}>${nameF}${b.fields.map(f => fieldHtml(dev, b, f)).join('')}</div>
       <pre class="ios" id="${id}-ios"${eyes.has(dev + ':' + b.key) ? '' : ' hidden'}></pre>
     </article>`;
   }
@@ -293,7 +293,8 @@
   function renderChunks() {
     const all = `<button type="button" class="chunk" data-chunk="" aria-pressed="${!focus}"><span class="ck ck-all">∗</span>All blocks <span class="cnt" id="cnt-all"></span></button>`;
     $('#chunks').innerHTML = all + CHUNKS.map(c => `<button type="button" class="chunk" data-chunk="${c.id}" aria-pressed="${focus === c.id}"><span class="ck ck-${c.id}">${c.n}</span>${c.label} <span class="cnt" id="cnt-${c.id}"></span></button>`).join('')
-      + `<button type="button" class="chunk" data-chunk="test"><span class="ck ck-test">5</span>Test</button>`;
+      + `<button type="button" class="chunk" data-chunk="test"><span class="ck ck-test">5</span>Verify</button>`
+      + `<span class="all-tools" role="group" aria-label="All blocks"><button type="button" class="tool" data-all="fold" title="Collapse all blocks">▸ Collapse all</button><button type="button" class="tool" data-all="unfold" title="Expand all blocks">▾ Expand all</button><button type="button" class="tool" data-all="ios" title="Show the IOS of every block">👁 All IOS</button><button type="button" class="tool" data-all="noios" title="Hide the IOS of every block">Hide IOS</button></span>`;
     const c = CHUNKS.find(x => x.id === focus), card = $('#chunk-card');
     card.hidden = false;
     card.innerHTML = c ? `<b class="q">${c.n} · ${c.label}: ${esc(c.q)}</b><p>${esc(c.p)}</p>` : `<b class="q">${esc({ example: 'Worked example', complete: 'Your turn: complete R3', bugs: 'Troubleshooting', pqc: 'Quantum-safe worked example' }[start])}</b><p>${esc(STARTS[start].text)}</p>`;
@@ -482,6 +483,15 @@
   document.addEventListener('click', e => {
     const chip = e.target.closest('.chip');
     if (chip) { const { dev, b, f, v } = chip.dataset, list = cfg[dev][b][f], i = list.indexOf(v); if (i >= 0) list.splice(i, 1); else list.push(v); rerenderBlock(dev, b); return changed(); }
+    const fold = e.target.closest('.fold');
+    if (fold) { setFold(fold.dataset.fold, !folded.has(fold.dataset.fold)); return; }
+    const all = e.target.closest('[data-all]');
+    if (all) {
+      const keys = DEVS.flatMap(d => BLOCKS.map(b => `${d}:${b.key}`)), act = all.dataset.all;
+      if (act === 'fold' || act === 'unfold') keys.forEach(k => setFold(k, act === 'fold'));
+      else { keys.forEach(k => { if (act === 'ios') eyes.add(k); else eyes.delete(k); const [d, key] = k.split(':'); const el = $(`[data-eye="${k}"]`); if (el) el.setAttribute('aria-pressed', eyes.has(k)); $(`#blk-${d}-${key}-ios`).hidden = !eyes.has(k); }); refresh(); }
+      return;
+    }
     const eye = e.target.closest('.eye');
     if (eye) { const k = eye.dataset.eye; if (eyes.has(k)) eyes.delete(k); else eyes.add(k); const [dev, key] = k.split(':'); eye.setAttribute('aria-pressed', eyes.has(k)); $(`#blk-${dev}-${key}-ios`).hidden = !eyes.has(k); return refresh(); }
     const fix = e.target.closest('.fix');
@@ -494,6 +504,12 @@
     if (e.target.id === 'copy') { const txt = $('#full-pre').textContent; const done = () => { $('#copy').textContent = 'Copied'; }; try { navigator.clipboard.writeText(txt).then(done, () => { selectPre(); }); } catch (err) { selectPre(); } return; }
     if (e.target.id === 'run') return runTest();
   });
+  function setFold(k, on) {
+    if (on) folded.add(k); else folded.delete(k);
+    const [d, key] = k.split(':'), btn = $(`[data-fold="${k}"]`), body = $(`#blk-${d}-${key}-body`);
+    if (btn) { btn.setAttribute('aria-expanded', !on); btn.textContent = on ? '▸' : '▾'; }
+    if (body) body.hidden = on;
+  }
   const selectPre = () => { const r = document.createRange(); r.selectNodeContents($('#full-pre')); const s = getSelection(); s.removeAllRanges(); s.addRange(r); $('#copy').textContent = 'Press ⌘C / Ctrl+C'; };
   // hovering a reference highlights the block it points to: names are how blocks connect
   document.addEventListener('focusin', e => { const t = e.target; if (t.dataset && t.dataset.ref) flashBlock(t.dataset.dev, t.dataset.ref); });
