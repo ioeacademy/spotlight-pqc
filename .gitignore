@@ -5,8 +5,10 @@
 !/.nojekyll
 !/.github/
 !/index.html
+!/DISCLAIMER.md
 !/tutorials/
 /tutorials/*
 !/tutorials/v3-three-router/
 !/tutorials/v4-blocks/
+!/tutorials/v5-quickstart/
 .DS_Store

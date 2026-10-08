@@ -3,29 +3,29 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Post-Quantum Key Exchange — 3-Router Lab</title>
-  <meta name="description" content="Hands-on simulation of IPsec Series Part 9: classical, PPK and ML-KEM-768 IKEv2 on three Cisco IOS XE routers, ending with a phased hub-and-spoke migration.">
-  <link rel="stylesheet" href="css/style.css?v=20261008c">
+  <title>Quick VPN Labs</title>
+  <meta name="description" content="Three short simulated Cisco IOS XE labs: a classic IKEv2 VPN, a post-quantum ML-KEM VPN, and the migration from classic to post-quantum.">
+  <link rel="stylesheet" href="../v3-three-router/css/style.css?v=20261008c">
 </head>
 <body>
   <header class="lab-nav">
     <a class="nav-home" href="../../index.html">&larr; Spotlight-PQC</a>
     <span class="nav-sep"></span>
-    <span class="badge">v3 · 3 routers</span>
-    <h1 class="nav-title">Post-Quantum Key Exchange on Cisco Routers</h1>
+    <span class="badge">Quick lab</span>
+    <h1 class="nav-title">Quick VPN Labs</h1>
     <span class="nav-spacer"></span>
     <a class="edu-badge" href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener" title="Educational simulator: output may differ from real routers. Not for validating configurations. Provided as is, without support.">🎓 Education only</a>
     <span class="fs-group" role="group" aria-label="Text size">
       <button class="fs-btn" data-fs="s" aria-pressed="true" title="Normal text">A</button><button class="fs-btn" data-fs="m" aria-pressed="false" title="Larger text">A</button><button class="fs-btn" data-fs="l" aria-pressed="false" title="Largest text">A</button>
     </span>
-    <span class="nav-progress" id="nav-progress" aria-live="polite">0 / 16</span>
+    <span class="nav-progress" id="nav-progress" aria-live="polite">0 / 0</span>
     <button class="btn ghost" id="btn-reset" title="Reset all routers and progress">Reset lab</button>
   </header>
 
   <main class="split">
     <section class="tutorial" id="tutorial" aria-label="Tutorial steps">
       <div class="tut-head">
-        <div class="tut-kicker">IPsec Series · Part 9 — hands-on</div>
+        <div class="tut-kicker">Short lab</div>
         <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
       </div>
       <ol class="steps" id="steps"></ol>
@@ -62,9 +62,9 @@
     </div>
   </div>
 
-  <script src="js/ios-pqc-engine.js?v=20261008c"></script>
-  <script src="js/lab-topology.js?v=20261006a"></script>
-  <script src="js/tutorial-steps.js?v=20261008d"></script>
-  <script src="js/app.js?v=20261008d"></script>
+  <script src="../v3-three-router/js/ios-pqc-engine.js?v=20261008c"></script>
+  <script src="../v3-three-router/js/lab-topology.js?v=20261006a"></script>
+  <script src="js/quick-steps.js?v=20261008a"></script>
+  <script src="../v3-three-router/js/app.js?v=20261008d"></script>
 </body>
 </html>

@@ -72,6 +72,16 @@
   const espInfo = esp => /gcm/.test(esp)
     ? { encr: 'AES-GCM', key: (esp.match(/(\d+)/) || [, '256'])[1], hmac: 'None', mtu: 1446, tmtu: 9946, iv: 8 }
     : { encr: 'AES-CBC', key: (esp.match(/esp-aes (\d+)/) || [, '128'])[1], hmac: ((esp.match(/esp-(sha\d*)-hmac/) || [, 'sha'])[1]).toUpperCase().replace(/^SHA$/, 'SHA1'), mtu: 1438, tmtu: 9938, iv: 16 };
+  // Shown in `show version` and in the UI: this is a learning aid, not a validation tool
+  const DISCLAIMER = [
+    '*** Spotlight PQC: EDUCATIONAL SIMULATOR, not a real Cisco device ***',
+    'Built to practise IOS XE commands and learn post-quantum VPN concepts and',
+    'configuration steps. Output is modelled on IOS XE and may differ from real',
+    'platforms and releases. Do not use it to validate, test or certify',
+    'configurations for production networks.',
+    'Provided "as is", without warranty or support of any kind. Not affiliated',
+    'with or endorsed by Cisco Systems, Inc. Use at your own risk.',
+  ];
   const spiNum = s => parseInt(String(s).replace(/^0x/i, ''), 16) >>> 0;
   const spiLong = s => { const v = spiNum(s); return `0x${v.toString(16).toUpperCase()}(${v})`; };
   const spiShort = s => `0x${spiNum(s).toString(16).toUpperCase()}`;
@@ -244,6 +254,7 @@
   class Lab {
     constructor(topology, opts = {}) {
       this.now = opts.now || (() => Date.now());
+      this.disclaimer = opts.disclaimer !== false;
       this.topo = topology;
       this.devs = {};
       this.order = Object.keys(topology.devices);
@@ -1301,6 +1312,7 @@
           const upt = (h ? `${h} hour${h === 1 ? '' : 's'}, ` : '') + `${m} minute${m === 1 ? '' : 's'}`;
           const v = /C8000V/.test(d.model);
           return [`Cisco IOS XE Software, Version ${d.version}`, `Cisco IOS Software [Spotlight-PQC lab], ${v ? 'Virtual XE' : d.model} Software, Version ${d.version}`, 'Technical Support: http://www.cisco.com/techsupport', '',
+            ...(lab.disclaimer ? [...DISCLAIMER, ''] : []),
             'ROM: IOS-XE ROMMON', '', `${d.hostname} uptime is ${upt}`, 'System image file is "bootflash:packages.conf"', '',
             v ? 'cisco C8000V (VXE) processor (revision VXE) with 1628922K/3075K bytes of memory.' : `cisco ${d.model} (1RU) processor with 3762145K/6147K bytes of memory.`,
             `Processor board ID ${d.serial}`, '', 'Configuration register is 0x2102', ''];
@@ -1620,5 +1632,5 @@
     }
   }
 
-  return { Lab, canonIf, ifShort, isIp, PQC_LABEL, DH_LABEL, DH_KE_BYTES, MLKEM_SIZES, ENC_LABEL, NEG_DELAY_MS };
+  return { Lab, DISCLAIMER, canonIf, ifShort, isIp, PQC_LABEL, DH_LABEL, DH_KE_BYTES, MLKEM_SIZES, ENC_LABEL, NEG_DELAY_MS };
 });

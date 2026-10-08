@@ -1,5 +1,5 @@
 /* Cisco lab style (see docs/LAB_STYLE_GUIDE.md) with the quantum-safe purple accent */
-:root {
+:root { --fs: 1;
   --cisco-text: #4d4c4c; --cisco-border: #b7b7b7; --cisco-primary: #1ba0d7; --cisco-alternate: #108abe;
   --cisco-brand-blue: #00739d; --cisco-gray-light: #f2f2f2; --cisco-gray-dark: #374448; --cisco-dark: #283033;
   --cisco-error: #b72121; --cisco-success: #006613;
@@ -99,6 +99,7 @@ pre.out { border-radius: 8px; margin: 8px 0; color: #b8f5c8; }
 .callout { border-radius: 8px; padding: 8px 12px; margin: 10px 0; font-size: 13px; border-left: 4px solid; }
 .callout.info { background: var(--info-soft); border-color: var(--cisco-primary); }
 .callout.tip { background: var(--success-soft); border-color: var(--success); }
+.callout.edu { background: var(--accent-soft, #efe9ff); border-color: var(--accent); }
 .callout.warn { background: var(--warn-soft); border-color: var(--warn); }
 .goal { margin: 12px 0 6px; padding: 8px 12px; border-radius: 8px; border: 1px dashed var(--accent); font-size: 13px; font-weight: 600; }
 .step-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
@@ -214,3 +215,23 @@ pre.out { border-radius: 8px; margin: 8px 0; color: #b8f5c8; }
   .verdict { grid-template-columns: 1fr; }
   .term { font-size: 12px; }
 }
+
+/* ── Text size (A A A) ── */
+.fs-group { display: inline-flex; border: 1px solid var(--border); border-radius: 99px; overflow: hidden; }
+.fs-btn { font: inherit; font-weight: 700; background: transparent; color: var(--text); border: 0; padding: 2px 8px; cursor: pointer; line-height: 1.2; }
+.fs-btn[data-fs="s"] { font-size: 11px; } .fs-btn[data-fs="m"] { font-size: 13.5px; } .fs-btn[data-fs="l"] { font-size: 16px; }
+.fs-btn + .fs-btn { border-left: 1px solid var(--border); }
+.fs-btn[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.fs-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tut-head, #steps, .modal-body, .tabs { zoom: var(--fs); }
+.term { font-size: calc(13px * var(--fs)); }
+#topo .lbl-ip { font-size: calc(11px * var(--fs)); }
+#topo .lbl-port { font-size: calc(10.5px * var(--fs)); }
+#topo .lbl-link { font-size: calc(11px * var(--fs)); }
+#topo .host { font-size: calc(15px * var(--fs)); }
+#topo .role { font-size: calc(11px * var(--fs)); }
+#topo .tun-label text { font-size: calc(11px * var(--fs)); }
+#topo .lbl-tun { font-family: var(--font-mono); font-size: calc(10.5px * var(--fs)); font-weight: 600; fill: var(--text); paint-order: stroke; stroke: var(--bg); stroke-width: 3px; stroke-linejoin: round; pointer-events: none; }
+#topo .tun-label text.lbl-tun-net { font-family: var(--font-mono); font-size: calc(9.5px * var(--fs)); font-weight: 500; fill: var(--muted); }
+.edu-badge { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border: 1px solid var(--accent); border-radius: 99px; padding: 2px 9px; text-decoration: none; white-space: nowrap; }
+@media (max-width: 720px) { .edu-badge { display: none; } }

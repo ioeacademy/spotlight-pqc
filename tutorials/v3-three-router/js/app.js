@@ -4,8 +4,9 @@
   const { Lab, PQC_LABEL, DH_LABEL, DH_KE_BYTES, MLKEM_SIZES, ifShort } = window.PqcLab;
   const TOPO = window.LAB_TOPOLOGY;
   // ?track=classic | full (default)
-  const TRACK_ID = (new URLSearchParams(location.search).get('track') || 'full').toLowerCase();
-  const TRACK = window.TUTORIAL.TRACKS[TRACK_ID] || window.TUTORIAL.TRACKS.full;
+  const TRACKS = window.TUTORIAL.TRACKS;
+  const TRACK_ID = (new URLSearchParams(location.search).get('track') || window.TUTORIAL.DEFAULT_TRACK || 'full').toLowerCase();
+  const TRACK = TRACKS[TRACK_ID] || TRACKS[window.TUTORIAL.DEFAULT_TRACK] || TRACKS.full || Object.values(TRACKS)[0];
   const STEPS = TRACK.steps.map(id => window.TUTORIAL.BY_ID[id]);
   document.title = TRACK.title;
   document.querySelector('.nav-title').textContent = TRACK.title;
@@ -43,6 +44,7 @@
       // "?" typed via IME/paste (no keydown): IOS always treats it as a help request
       inp.addEventListener('input', () => { const i = inp.value.indexOf('?'); if (i >= 0) { inp.value = inp.value.slice(0, i); showHelp(k); } });
       line(k, `${def.hostname} con0 is now available — Cisco ${def.model}, IOS XE 26.2 (simulated)`, 'term-banner');
+      line(k, 'Educational simulator: output may differ from real routers. Not for validating configurations.', 'term-banner');
       line(k, `Type "?" for help. Tab completes, ↑/↓ recall history, Ctrl+Z leaves config mode.`, 'term-banner');
       line(k, '', '');
       setPrompt(k);
@@ -203,11 +205,22 @@
   function finish() {
     const mins = Math.max(1, Math.round((Date.now() - t0) / 60000));
     const el = $('#finish');
-    el.innerHTML = `<h3>🎉 Lab complete — quantum-safe key exchange on all tunnels</h3>
+    el.innerHTML = `<h3>🎉 ${esc(TRACK.finish || 'Lab complete — quantum-safe key exchange on all tunnels')}</h3>
       <p>Time: <b>${mins} min</b> · Steps solved without <i>Show Me</i>: <b>${STEPS.filter(s => s.run.length).length - [...usedShowMe].length}</b> of ${STEPS.filter(s => s.run.length).length}</p>
       <p>Keep exploring: the routers stay live. Try a wrong pre-shared key, drop the fragmentation, or turn on <code>debug crypto ikev2</code> and clear the SAs.</p>`;
     el.classList.add('show'); el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
   }
+
+  /* ═══════════════════════ Text size (A A A) ═══════════════════════ */
+  const FS = { s: 1, m: 1.15, l: 1.3 }; let topoReady = false;
+  function setFont(k, save) {
+    if (!FS[k]) k = 's';
+    document.documentElement.style.setProperty('--fs', FS[k]);
+    document.querySelectorAll('.fs-btn').forEach(b => b.setAttribute('aria-pressed', b.dataset.fs === k));
+    if (save) try { localStorage.setItem('spq-fs', k); } catch (e) { }
+    if (topoReady) { tunSig = ''; refresh(); }
+  }
+  document.querySelectorAll('.fs-btn').forEach(b => b.addEventListener('click', () => setFont(b.dataset.fs, true)));
 
   /* ═══════════════════════ Topology ═══════════════════════ */
   const SVGNS = 'http://www.w3.org/2000/svg';
@@ -250,8 +263,16 @@
   const arcPath = (a, b) => {
     const x1 = POS[a], x2 = POS[b]; const span = Math.abs(x2 - x1);
     const h = span > 400 ? 150 : 88; const mx = (x1 + x2) / 2;
-    return { d: `M${x1},${TOP} Q${mx},${TOP - 2 * h} ${x2},${TOP}`, apex: [mx, TOP - h] };
+    // point on the quadratic curve at parameter u (0 = a, 1 = b)
+    const at = u => [(1 - u) ** 2 * x1 + 2 * (1 - u) * u * mx + u * u * x2, (1 - u) ** 2 * TOP + 2 * (1 - u) * u * (TOP - 2 * h) + u * u * TOP];
+    return { d: `M${x1},${TOP} Q${mx},${TOP - 2 * h} ${x2},${TOP}`, apex: [mx, TOP - h], at };
   };
+  // tunnel overlay addressing, read live from the routers' configuration
+  const ip2n = ip => ip.split('.').reduce((a, o) => a * 256 + +o, 0);
+  const n2ip = n => [24, 16, 8, 0].map(b => Math.floor(n / 2 ** b) % 256).join('.');
+  const tunAddr = (dev, ifn) => { const i = lab.dev(dev).ifaces[ifn]; return i && i.ip ? i : null; };
+  const subnetOf = i => { const m = ip2n(i.mask), len = i.mask.split('.').reduce((a, o) => a + (+o).toString(2).split('1').length - 1, 0); return `${n2ip(ip2n(i.ip) - ip2n(i.ip) % (2 ** 32 - m))}/${len}`; };
+  const fsScale = () => +getComputedStyle(document.documentElement).getPropertyValue('--fs') || 1;
   function tunnelView(t) {
     if (t.state === 'up' && t.sa.child.down) return { kind: 'fail', label: `${ifShort(t.a.if)} · IKE up · ✕ no IPsec SA` };
     if (t.state === 'up') {
@@ -266,20 +287,33 @@
     const tuns = lab.tunnels();
     const halves = lab.halfTunnels().filter(h => h.protected && !h.shutdown && h.mode === 'ipsec ipv4');
     const ownerOf = ip => DEVS.find(k => Object.values(lab.dev(k).ifaces).some(i => i.ip === ip && i.kind !== 'tunnel'));
-    const sig = JSON.stringify([tuns.map(t => [t.key, t.state, t.code, t.params && [t.params.pqc, t.params.ppk], t.sa && t.sa.child.down]), halves.map(h => [h.dev, h.if, h.dest])]);
+    const sig = JSON.stringify([fsScale(), tuns.map(t => [tunAddr(t.a.dev, t.a.if), tunAddr(t.b.dev, t.b.if)].map(i => i && i.ip + '/' + i.mask)), tuns.map(t => [t.key, t.state, t.code, t.params && [t.params.pqc, t.params.ppk], t.sa && t.sa.child.down]), halves.map(h => [h.dev, h.if, h.dest])]);
     if (sig === tunSig) return; tunSig = sig;
     gTun.innerHTML = '';
-    const items = tuns.map(t => ({ key: t.key, a: t.a.dev, b: t.b.dev, ...tunnelView(t) }));
-    for (const h of halves) { const o = ownerOf(h.dest); if (o && o !== h.dev) items.push({ key: 'half:' + h.dev + ':' + h.if, a: h.dev, b: o, kind: 'half', label: `${ifShort(h.if)} on ${lab.dev(h.dev).hostname} · waiting for ${lab.dev(o).hostname}` }); }
+    const items = tuns.map(t => ({ key: t.key, a: t.a.dev, b: t.b.dev, ends: [[t.a.dev, t.a.if], [t.b.dev, t.b.if]], ...tunnelView(t) }));
+    for (const h of halves) { const o = ownerOf(h.dest); if (o && o !== h.dev) items.push({ key: 'half:' + h.dev + ':' + h.if, a: h.dev, b: o, ends: [[h.dev, h.if]], kind: 'half', label: `${ifShort(h.if)} on ${lab.dev(h.dev).hostname} · waiting for ${lab.dev(o).hostname}` }); }
+    const fs = fsScale();
     for (const it of items) {
-      const { d, apex } = arcPath(it.a, it.b);
+      const { d, apex, at } = arcPath(it.a, it.b);
       const g = el('g', { 'data-key': it.key, role: 'button', tabindex: 0, 'aria-label': `Inspect tunnel: ${it.label}` }, gTun);
       el('path', { class: 'tun-hit', d }, g);
       el('path', { class: 'tun ' + it.kind, d, id: 'tun-' + cssId(it.key) }, g);
       const lg = el('g', { class: 'tun-label' }, g);
-      const w = it.label.length * 6.3 + 18;
-      el('rect', { x: apex[0] - w / 2, y: apex[1] - 11, width: w, height: 22, rx: 11, stroke: `var(--${it.kind === 'half' ? 'neg' : it.kind})` }, lg);
-      const tx = el('text', { x: apex[0], y: apex[1] + 4, 'text-anchor': 'middle', fill: `var(--${it.kind === 'half' ? 'neg' : it.kind})` }, lg); tx.textContent = it.label;
+      const w = it.label.length * 6.3 * fs + 18;
+      // tunnel interface addresses where the arc leaves each router, overlay subnet under the pill
+      const addrs = it.ends.map(([dv, ifn]) => ({ dv, i: tunAddr(dv, ifn) })).filter(x => x.i);
+      for (const { dv, i } of addrs) {
+        const left = POS[dv] === Math.min(POS[it.a], POS[it.b]);
+        // inside the arc, so the two addresses that meet at a hub never collide
+        const [px, py] = at(left === (POS[it.a] < POS[it.b]) ? 0.15 : 0.85);
+        const t = el('text', { class: 'lbl-tun', x: px + (left ? 8 : -8), y: py + 4, 'text-anchor': left ? 'start' : 'end' }, g);
+        t.textContent = i.ip;
+      }
+      const net = addrs.length ? `overlay ${subnetOf(addrs[0].i)}` : '';
+      const h2 = net ? 13 * fs : 0, wb = Math.max(w, net.length * 5.9 * fs + 18);
+      el('rect', { x: apex[0] - wb / 2, y: apex[1] - 11 * fs - h2 / 2, width: wb, height: 22 * fs + h2, rx: 11 * fs, stroke: `var(--${it.kind === 'half' ? 'neg' : it.kind})` }, lg);
+      if (net) { const sn = el('text', { class: 'lbl-tun-net', x: apex[0], y: apex[1] + 4 * fs + h2 / 2 + 1, 'text-anchor': 'middle' }, lg); sn.textContent = net; }
+      const tx = el('text', { x: apex[0], y: apex[1] + 4 * fs - h2 / 2, 'text-anchor': 'middle', fill: `var(--${it.kind === 'half' ? 'neg' : it.kind})` }, lg); tx.textContent = it.label;
       tx.style.fill = `var(--${it.kind === 'half' ? 'neg' : it.kind})`;
       g.addEventListener('click', () => openInspector(it.key));
       g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInspector(it.key); } });
@@ -430,5 +464,7 @@ SK_pi' = prf+(PPK, SK_pi)    SK_pr' = prf+(PPK, SK_pr)   ← RFC 8784: PPK "${es
   refresh();
   activate(0);
   setInterval(() => { lab.tick(); flushLogs(); refresh(); checkStep(); if (inspKey) renderInspector(); }, 500);
+  let fsSaved = 's'; try { fsSaved = localStorage.getItem('spq-fs') || 's'; } catch (e) { }
+  topoReady = true; setFont(fsSaved, false);
   window.__lab = lab; // for debugging in the console
 })();

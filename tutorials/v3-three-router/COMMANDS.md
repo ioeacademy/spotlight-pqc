@@ -2,6 +2,9 @@
 
 Reference for the commands the v3 three-router engine accepts
 (`js/ios-pqc-engine.js`, asset version `20261008b`, 2026-10-08).
+> **Education only.** Output may differ from real platforms; do not use the simulator to validate
+> configurations. See [DISCLAIMER.md](../../DISCLAIMER.md).
+
 Anything not listed here returns `% Invalid input detected at '^' marker.`, as a real router would.
 
 Syntax notation: `WORD` = a name, `A.B.C.D` = IPv4 address or mask, `IFACE` = interface name,
@@ -75,7 +78,7 @@ from anywhere and logs `%SYS-5-CONFIG_I`.
 |---|---|
 | `show running-config` | Full configuration in IOS order (smart defaults hidden). |
 | `show running-config interface IFACE` | `Building configuration...`, `Current configuration : N bytes`, the interface block. |
-| `show version` | IOS XE `26.02.01`, platform (C8000V or C8235-G2), uptime, serial. |
+| `show version` | IOS XE `26.02.01`, platform (C8000V or C8235-G2), uptime, serial, and the education-only notice. |
 | `show clock` | |
 | `show history` | |
 | `show logging` | Log buffer. |

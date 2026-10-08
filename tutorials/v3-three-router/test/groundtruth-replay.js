@@ -26,7 +26,7 @@ const TOPO = {
   ],
 };
 let t = Date.UTC(2026, 9, 8, 11, 18, 0);
-const lab = new Lab(TOPO, { now: () => t });
+const lab = new Lab(TOPO, { now: () => t, disclaimer: false });
 
 const norm = s => String(s || '').split('\n').map(l => l.replace(/\s+$/, '')).join('\n').replace(/^\n+|\n+$/g, '');
 // mask per-session values so structure can be compared

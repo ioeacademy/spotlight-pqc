@@ -31,14 +31,33 @@
   <h1>Spotlight PQC</h1>
   <p class="lead">Simulated Cisco IOS XE labs in the browser for learning quantum-safe IPsec VPNs. No routers needed.</p>
 
-  <h2>Tutorials</h2>
+  <h2>Quick labs — start here</h2>
   <div class="grid">
-    <a class="card new" href="tutorials/v3-three-router/?track=classic">
+    <a class="card new" href="tutorials/v5-quickstart/?track=classic">
+      <span class="tag">Classic</span>
+      <b>Build a classic IKEv2 VPN</b>
+      <span>6 short steps: route the WAN, configure the seven IKEv2/IPsec blocks on R1 and R3, and prove traffic is encrypted.</span>
+    </a>
+    <a class="card new" href="tutorials/v5-quickstart/?track=pqc">
+      <span class="tag">PQC</span>
+      <b>Build a post-quantum VPN</b>
+      <span>7 short steps: an ML-KEM-768 hybrid VPN from scratch, with fragmentation and quantum-safe rekeys.</span>
+    </a>
+    <a class="card new" href="tutorials/v5-quickstart/?track=migrate">
+      <span class="tag">Classic → PQC</span>
+      <b>From classic to post-quantum</b>
+      <span>Start with a classic VPN, then upgrade it step by step: fragmentation, ML-KEM optional, PFS, enforcement.</span>
+    </a>
+  </div>
+
+  <h2>Full tutorials</h2>
+  <div class="grid">
+    <a class="card" href="tutorials/v3-three-router/?track=classic">
       <span class="tag">Classic VPN</span>
       <b>Classic Site-to-Site VPN (IKEv2 + VTI)</b>
       <span>Start here: underlay routing, IKEv2 proposal → policy → keyring → profile → IPsec profile → VTI, and proof that traffic is really encrypted.</span>
     </a>
-    <a class="card new" href="tutorials/v3-three-router/">
+    <a class="card" href="tutorials/v3-three-router/">
       <span class="tag">v3 · 3 routers</span>
       <b>Post-Quantum Key Exchange on Cisco Routers</b>
       <span>Hands-on reproduction of IPsec Series Part 9: classical → PPK → ML-KEM-768 hybrid, ending with a phased hub-and-spoke migration on R1 / R2 / R3.</span>
@@ -69,7 +88,7 @@
   <!-- legacy tutorials are kept locally only; they are not part of the public repository -->
   <script>if (/github\.io$/.test(location.hostname)) document.getElementById('legacy').remove();</script>
 
-  <footer>Simulated behaviour. Command output is modelled on Cisco IOS XE and on the Cisco Blogs IPsec series by Julio Gomez.</footer>
+  <footer><b>🎓 Education only.</b> These labs are a simulator for practising commands and learning post-quantum VPN concepts. Output is modelled on Cisco IOS XE and on the Cisco Blogs IPsec series by Julio Gomez, and may differ from real platforms: do not use it to validate configurations. Provided as is, without warranty or support. Not affiliated with or endorsed by Cisco Systems, Inc. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md">Full disclaimer</a>.</footer>
 </main>
 </body>
 </html>

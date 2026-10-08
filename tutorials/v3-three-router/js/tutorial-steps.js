@@ -20,6 +20,7 @@
   const cfg = (dev, lines, note) => `<div class="cfg"><div class="cfg-head"><span class="dev-chip dev-${dev}">${dev.toUpperCase()}</span>${note ? `<span class="cfg-note">${note}</span>` : ''}</div><pre>${esc(lines.join('\n'))}</pre></div>`;
   const out = (lines) => `<pre class="out">${esc(lines.join('\n'))}</pre>`;
   const callout = (kind, html) => `<div class="callout ${kind}">${html}</div>`;
+  const EDU_NOTICE = callout('edu', `<b>🎓 For learning only.</b> This is a simulator to practise IOS XE commands and get familiar with post-quantum VPN concepts and configuration steps. It is not a real router: output can differ from real platforms and software releases, so <b>don't use it to validate configurations</b> for a real network. It is provided <b>as is</b>, with no warranty and no support. Always check the official Cisco documentation and test on real equipment before deploying. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
   const runOf = (dev, lines) => lines.map(c => [dev, c]);
 
   /* ---------- validation helpers ---------- */
@@ -70,6 +71,7 @@
   const CLASSIC_INTRO = {
     id: 'intro-classic', title: 'Classic site-to-site VPN with IKEv2', part: 'intro', devices: [],
     html: `
+${EDU_NOTICE}
 <p>In this track you build a <b>route-based IPsec VPN</b> between two Cisco IOS XE routers, R1 and R3, using <b>IKEv2</b> and a <b>Virtual Tunnel Interface (VTI)</b>. A third router, R2, sits in between as the "WAN": it only forwards packets.</p>
 <p>You will configure these blocks, in the same order the router uses them:</p>
 <table class="t">
@@ -116,6 +118,7 @@ ${callout('warn', '<b>This VPN is classical.</b> Its keys come from ECDH group 2
   {
     id: 'intro', title: 'From the lab bench to real routers', part: 'intro', devices: [],
     html: `
+${EDU_NOTICE}
 <p>Parts 1–8 of the series built quantum-safe IPsec tunnels in containers. Part 9 moves the same ideas onto <b>Cisco 8000 Series Secure Routers</b>, where the question is no longer "does the protocol work?" but "does the platform work?".</p>
 <p>In this tutorial you will configure three simulated <b>C8235-G2</b> routers running <b>IOS XE ${'26.2'}</b> and walk the key exchange through every stage that Part 9 covers:</p>
 <table class="t">
@@ -491,7 +494,7 @@ ${callout('warn', '<b>The missing half: authentication.</b> Every tunnel here st
   const BY_ID = Object.fromEntries([...STEPS, CLASSIC_INTRO, CLASSIC_WRAP].map(x => [x.id, x]));
   const TRACKS = {
     full: { title: 'Post-Quantum Key Exchange on Cisco Routers', badge: 'v3 · 3 routers', kicker: 'IPsec Series · Part 9 — hands-on', steps: STEPS.map(x => x.id) },
-    classic: { title: 'Classic Site-to-Site VPN (IKEv2 + VTI)', badge: 'Classic VPN', kicker: 'IKEv2 + VTI — the classical baseline', steps: ['intro-classic', 'underlay', 'r1-classic', 'r3-classic', 'baseline', 'wrap-classic'] },
+    classic: { title: 'Classic Site-to-Site VPN (IKEv2 + VTI)', badge: 'Classic VPN', kicker: 'IKEv2 + VTI — the classical baseline', finish: 'Lab complete — classic IKEv2 VPN built and proven', steps: ['intro-classic', 'underlay', 'r1-classic', 'r3-classic', 'baseline', 'wrap-classic'] },
   };
   const api = { STEPS, TRACKS, BY_ID, BLOG_URL, GUIDE_URL, helpers: { chainTo, hasPolicy, proposalsOf } };
   if (typeof module === 'object' && module.exports) module.exports = api;
