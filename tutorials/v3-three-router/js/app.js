@@ -328,32 +328,32 @@
     gTun = el('g', { id: 'g-tun' }, svg);
     gLinks = el('g', { id: 'g-links' }, svg);
     for (const l of TOPO.links) {
-      const [a, b] = [l.a, l.b]; const x1 = POS[a[0]] + 42, x2 = POS[b[0]] - 42;
+      const [a, b] = [l.a, l.b]; const x1 = POS[a[0]] + 50, x2 = POS[b[0]] - 50;
       el('line', { class: 'link', x1, y1: Y, x2, y2: Y }, gLinks);
       el('circle', { class: 'dot-up', cx: x1 + 6, cy: Y, r: 4.5, 'data-port': a.join(':') }, gLinks);
       el('circle', { class: 'dot-up', cx: x2 - 6, cy: Y, r: 4.5, 'data-port': b.join(':') }, gLinks);
-      const t = el('text', { class: 'lbl-link', x: (x1 + x2) / 2, y: Y + 34, 'text-anchor': 'middle' }, gLinks); t.textContent = `${l.label} · ${l.speed}`;
+      const t = el('text', { class: 'lbl-link', x: (x1 + x2) / 2, y: Y + 46, 'text-anchor': 'middle' }, gLinks); t.textContent = `${l.label} · ${l.speed}`;
       for (const [end, x, anchor] of [[a, x1, 'start'], [b, x2, 'end']]) {
         const dv = TOPO.devices[end[0]]; const port = dv.interfaces[end[1]]; const ip = port.vlan ? (dv.interfaces['Vlan' + port.vlan] || {}).ip : port.ip;
-        const p = el('text', { class: 'lbl-port', x, y: Y + 16, 'text-anchor': anchor }, gLinks); p.textContent = ifShort(end[1]);
-        const q = el('text', { class: 'lbl-ip', x, y: Y - 9, 'text-anchor': anchor }, gLinks); q.textContent = ip;
+        const p = el('text', { class: 'lbl-port', x, y: Y + 22, 'text-anchor': anchor }, gLinks); p.textContent = ifShort(end[1]);
+        const q = el('text', { class: 'lbl-ip', x, y: Y - 10, 'text-anchor': anchor }, gLinks); q.textContent = ip;
       }
     }
     for (const k of DEVS) {
       const x = POS[k], def = TOPO.devices[k];
       const g = el('g', { class: 'router', 'data-dev': k, tabindex: 0, role: 'button', 'aria-label': `Open ${def.hostname} console` }, svg);
       // Cisco router symbol as a line icon: a cylinder, two arrows meeting on the top face, two leaving it
-      const RX = 34, RY = 12, cy = Y - 8, H = 20;
+      const RX = 42, RY = 15, cy = Y - 9, H = 24;
       el('rect', { class: 'ring', x: x - RX - 9, y: cy - RY - 8, width: 2 * RX + 18, height: H + 2 * RY + 16, rx: 12 }, g);
       el('path', { class: 'r-body', d: `M${x - RX},${cy} v${H} a${RX},${RY} 0 0 0 ${2 * RX},0 v${-H}` }, g);
       el('ellipse', { class: 'r-top', cx: x, cy, rx: RX, ry: RY }, g);
       const ar = d => el('path', { class: 'r-arrow', d }, g);
-      ar(`M${x - RX + 7},${cy + 1} H${x - 11} m-4,-3.5 l4,3.5 l-4,3.5`);    // in, from the left
-      ar(`M${x + RX - 7},${cy - 1} H${x + 11} m4,-3.5 l-4,3.5 l4,3.5`);    // in, from the right
-      ar(`M${x - 3},${cy - 1} V${cy - 9} m-3.5,3.5 l3.5,-3.5 l3.5,3.5`);   // out, up
-      ar(`M${x + 3},${cy + 1} V${cy + 9} m-3.5,-3.5 l3.5,3.5 l3.5,-3.5`);  // out, down
-      const h = el('text', { class: 'host', x, y: Y + 46, 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
-      const r = el('text', { class: 'role', x, y: Y + 62, 'text-anchor': 'middle' }, g); r.textContent = def.role;
+      ar(`M${x - RX + 8},${cy + 1} H${x - 13} m-5,-4.5 l5,4.5 l-5,4.5`);    // in, from the left
+      ar(`M${x + RX - 8},${cy - 1} H${x + 13} m5,-4.5 l-5,4.5 l5,4.5`);    // in, from the right
+      ar(`M${x - 4},${cy - 1} V${cy - 12} m-4.5,4.5 l4.5,-4.5 l4.5,4.5`);   // out, up
+      ar(`M${x + 4},${cy + 1} V${cy + 12} m-4.5,-4.5 l4.5,4.5 l4.5,-4.5`);  // out, down
+      const h = el('text', { class: 'host', x, y: Y + 56, 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
+      const r = el('text', { class: 'role', x, y: Y + 75, 'text-anchor': 'middle' }, g); r.textContent = def.role;
       g.addEventListener('click', () => selectDev(k, true));
       g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDev(k, true); } });
     }
@@ -402,33 +402,36 @@
       el('path', { class: 'tun ' + it.kind, d, id: 'tun-' + cssId(it.key) }, g);
       const lg = el('g', { class: 'tun-label' }, g);
       const full = `${it.st} · ${it.label}`;
-      const w = full.length * 6.6 * fs + 30;
+      const w = full.length * 8.6 * fs + 34;
       // tunnel interface addresses where the arc leaves each router, overlay subnet under the pill
       const addrs = it.ends.map(([dv, ifn]) => ({ dv, i: tunAddr(dv, ifn) })).filter(x => x.i);
       for (const { dv, i } of addrs) {
         const left = POS[dv] === Math.min(POS[it.a], POS[it.b]);
         // inside the arc, so the two addresses that meet at a hub never collide
         const [px, py] = at(left === (POS[it.a] < POS[it.b]) ? 0.15 : 0.85);
-        const t = el('text', { class: 'lbl-tun', x: px + (left ? 8 : -8), y: py + 4, 'text-anchor': left ? 'start' : 'end' }, g);
-        t.textContent = i.ip;
+        const t = el('text', { class: 'lbl-tun', x: px + (left ? 10 : -10), y: py + 6, 'text-anchor': left ? 'start' : 'end' }, g);
+        // short (adjacent) arcs have no room for two full addresses: show the host part, the badge carries the subnet
+        const short = Math.abs(POS[it.a] - POS[it.b]) < 400;
+        t.textContent = short ? '.' + i.ip.split('.').pop() : i.ip;
+        const tt = el('title', {}, t); tt.textContent = `${lab.dev(dv).hostname} ${ifShort(it.ends.find(e => e[0] === dv)[1])} ${i.ip}`;
       }
       const net = addrs.length ? `overlay ${subnetOf(addrs[0].i)}` : '';
-      const h2 = net ? 13 * fs : 0, wb = Math.max(w, net.length * 5.9 * fs + 18);
+      const h2 = net ? 17 * fs : 0, wb = Math.max(w, net.length * 7.9 * fs + 22);
       const col = `var(--${it.kind === 'half' ? 'neg' : it.kind})`;
-      const rect = el('rect', { x: apex[0] - wb / 2, y: apex[1] - 11 * fs - h2 / 2, width: wb, height: 22 * fs + h2, rx: 8, stroke: col }, lg);
-      if (net) { const sn = el('text', { class: 'lbl-tun-net', x: apex[0], y: apex[1] + 4 * fs + h2 / 2 + 1, 'text-anchor': 'middle' }, lg); sn.textContent = net; }
+      const rect = el('rect', { x: apex[0] - wb / 2, y: apex[1] - 14 * fs - h2 / 2, width: wb, height: 28 * fs + h2, rx: 8, stroke: col }, lg);
+      if (net) { const sn = el('text', { class: 'lbl-tun-net', x: apex[0], y: apex[1] + 5 * fs + h2 / 2 + 2, 'text-anchor': 'middle' }, lg); sn.textContent = net; }
       // status badge: coloured dot + bold status word + details, all in ink for contrast
-      const ty = apex[1] + 4 * fs - h2 / 2;
-      const tx = el('text', { x: apex[0] + 6, y: ty, 'text-anchor': 'middle' }, lg);
+      const ty = apex[1] + 5 * fs - h2 / 2;
+      const tx = el('text', { x: apex[0] + 7, y: ty, 'text-anchor': 'middle' }, lg);
       const s1 = el('tspan', { class: 'st' }, tx); s1.textContent = it.st;
       const s2 = el('tspan', {}, tx); s2.textContent = ` · ${it.label}`;
-      const dot = el('circle', { cx: 0, cy: ty - 4 * fs, r: 4, fill: col }, lg);
+      const dot = el('circle', { cx: 0, cy: ty - 5 * fs, r: 5, fill: col }, lg);
       // fit the badge to the rendered text when the browser can measure it
       let tw = 0; try { tw = tx.getComputedTextLength(); } catch (e) { }
-      if (!tw) tw = full.length * 6.6 * fs;
-      const bw = Math.max(tw + 34, net ? net.length * 5.9 * fs + 18 : 0);
+      if (!tw) tw = full.length * 8.6 * fs;
+      const bw = Math.max(tw + 40, net ? net.length * 7.9 * fs + 22 : 0);
       rect.setAttribute('x', apex[0] - bw / 2); rect.setAttribute('width', bw);
-      dot.setAttribute('cx', apex[0] + 6 - tw / 2 - 9);
+      dot.setAttribute('cx', apex[0] + 7 - tw / 2 - 11);
       g.addEventListener('click', () => openInspector(it.key));
       g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInspector(it.key); } });
     }
