@@ -53,6 +53,37 @@
     const c = exact ? [exact] : IF_TYPES.filter(x => x.name.toLowerCase().startsWith(t));
     return c.length === 1 ? c[0].name + m[2] : null;
   }
+  // `interface ?` descriptions, as IOS XE prints them
+  const IF_DESC = { GigabitEthernet: 'GigabitEthernet IEEE 802.3z', TwoGigabitEthernet: 'Two GigabitEthernet IEEE 802.3z', Loopback: 'Loopback interface', Tunnel: 'Tunnel interface', Vlan: 'Catalyst Vlans' };
+  const IF_RANGE = { Loopback: [0, 2147483647], Tunnel: [0, 2147483647], Vlan: [1, 4094] };
+  const ifTypesFor = letters => IF_TYPES.filter(x => x.name.toLowerCase().startsWith(letters.toLowerCase()));
+  // help for an interface argument: ctx = { names: existing interface names, types: types this router offers }
+  function ifaceHelp(ctx, partial, endsSpace) {
+    const types = ctx.types;
+    if (endsSpace) return { list: types.map(t => [t, IF_DESC[t] || '']) };
+    const m = /^([a-zA-Z-]+)(\d+(?:\/\d+)*)?(\/)?$/.exec(partial);
+    if (!m) return { list: [] };
+    const cand = ifTypesFor(m[1]).filter(t => types.includes(t.name));
+    if (!m[2]) return { list: cand.map(t => [t.name, '']), complete: cand.length === 1 ? cand[0].name : null };
+    if (cand.length !== 1) return { list: [] };
+    const T = cand[0].name, path = m[2].split('/').map(Number), slash = !!m[3];
+    const deeper = ctx.names.filter(n => n.startsWith(T) && /^\d/.test(n.slice(T.length))).map(n => n.slice(T.length).split('/').map(Number));
+    const same = deeper.filter(v => path.every((x, i) => v[i] === x));
+    if (slash) {
+      const lvl = same.map(v => v[path.length]).filter(x => x != null);
+      return { list: lvl.length ? [[`<${Math.min(...lvl)}-${Math.max(...lvl)}>`, '']] : [] };
+    }
+    if (same.some(v => v.length > path.length)) return { list: [['/', '']] };
+    return { list: [[T + m[2], '']] };
+  }
+  function ifaceNumberHelp(ctx, typeTok) {
+    const cand = ifTypesFor(typeTok).filter(t => ctx.types.includes(t.name));
+    if (cand.length !== 1) return null;
+    const T = cand[0].name;
+    const firsts = ctx.names.filter(n => n.startsWith(T) && /^\d/.test(n.slice(T.length))).map(n => +n.slice(T.length).split('/')[0]);
+    const [lo, hi] = IF_RANGE[T] || (firsts.length ? [Math.min(...firsts), Math.max(...firsts)] : [0, 0]);
+    return [[`<${lo}-${hi}>`, `${T} interface number`]];
+  }
   const ifShort = n => { const t = IF_TYPES.find(x => n.startsWith(x.name)); return t ? t.short + n.slice(t.name.length) : n; };
   const ifKind = n => n.startsWith('Tunnel') ? 'tunnel' : n.startsWith('Vlan') ? 'svi' : n.startsWith('Loopback') ? 'loopback' : 'phys';
   function ifSort(a, b) {
@@ -223,13 +254,22 @@
   }
   const isComplete = x => x.line || x.vals.length === x.c.tokens.length;
 
-  function helpFor(cmds, raw) {
+  function helpFor(cmds, raw, ifctx) {
     const endsSpace = /\s$/.test(raw) || raw === '';
     const toks = tokenize(raw);
     const prefix = endsSpace ? toks : toks.slice(0, -1);
-    const partial = endsSpace ? '' : toks[toks.length - 1].t.toLowerCase();
-    const r = matchCmds(cmds, prefix);
+    const partialRaw = endsSpace ? '' : toks[toks.length - 1].t;
+    const partial = partialRaw.toLowerCase();
+    let r = matchCmds(cmds, prefix);
+    // `interface Tw ?`: a bare interface type before the number
+    if (r.err === 'invalid' && ifctx && endsSpace && r.errIdx === prefix.length - 1) {
+      const before = matchCmds(cmds, prefix.slice(0, -1));
+      const wantsIf = !before.err && before.cands.some(x => !x.line && x.c.tokens[prefix.length - 1] && x.c.tokens[prefix.length - 1].arg === 'IFACE');
+      const nums = wantsIf && ifaceNumberHelp(ifctx, prefix[prefix.length - 1].t);
+      if (nums) return { entries: nums, partial: false };
+    }
     if (r.err) return { err: r.err, errIdx: r.errIdx, toks: prefix };
+    let ifComplete = null;
     const n = prefix.length;
     const prevKw = n > 0 ? prefix[n - 1].t.toLowerCase() : '';
     const prevFull = n > 0 ? (r.cands[0] && r.cands[0].vals[n - 1]) : '';
@@ -241,6 +281,10 @@
       if (s.kw) {
         const first = n > 0 ? x.vals[0] : '';
         for (const k of s.kw) if (k.startsWith(partial)) out.set(k, DESC[`${first}:${prevFull} ${k}`] || DESC[`${prevFull} ${k}`] || DESC[`${prevKw} ${k}`] || DESC[k] || '');
+      } else if (s.arg === 'IFACE' && ifctx) {
+        const ih = ifaceHelp(ifctx, partialRaw, endsSpace);
+        for (const [k, v] of ih.list) out.set(k, v);
+        if (ih.complete) ifComplete = ih.complete;
       } else if (endsSpace) {
         if (s.arg === 'RANGE') out.set(`<${s.lo}-${s.hi}>`, (x.c.argHelp && x.c.argHelp[n]) || '');
         else out.set(ARG_DESC[s.arg] || s.arg, (x.c.argHelp && x.c.argHelp[n]) || (s.arg === 'IFACE' ? 'Interface name' : ''));
@@ -248,7 +292,7 @@
     }
     const entries = [...out.entries()].sort((a, b) => (/^[A-Z<]/.test(a[0]) ? 1 : 0) - (/^[A-Z<]/.test(b[0]) ? 1 : 0) || a[0].localeCompare(b[0]));
     if (cr) entries.push(['<cr>', '<cr>']);
-    return { entries, partial: !endsSpace };
+    return { entries, partial: !endsSpace, ifComplete };
   }
 
   /* ───────────────────────── Command tables ───────────────────────── */
@@ -933,8 +977,16 @@
       }
       return lines;
     }
+    // interface types this router offers in `?` and Tab: its physical types plus the virtual ones
+    _ifCtx(d) {
+      const names = Object.keys(d.ifaces);
+      const phys = new Set(names.filter(n => d.ifaces[n].kind === 'phys').map(n => (IF_TYPES.find(t => n.startsWith(t.name) && /^\d/.test(n.slice(t.name.length))) || {}).name).filter(Boolean));
+      const types = [...phys, 'Loopback', 'Tunnel'];
+      if (names.some(n => d.ifaces[n].kind === 'svi' || d.ifaces[n].vlan)) types.push('Vlan');
+      return { names, types: [...new Set(types)].sort() };
+    }
     help(devKey, raw) {
-      const d = this.devs[devKey];
+      const d = this.devs[devKey]; const ifx = this._ifCtx(d);
       let mode = d.mode; let text = raw;
       if (raw.includes('|')) return [{ text: '  begin    Begin with the line that matches' }, { text: '  count    Count number of lines which match regexp' }, { text: '  exclude  Exclude lines that match' }, { text: '  include  Include lines that match' }, { text: '  section  Filter a section of output' }];
       let neg = false;
@@ -942,9 +994,9 @@
       const cmds = this._modeCmds(d, mode);
       let pool = neg ? cmds.filter(c => c.no) : cmds.filter(c => !c.noOnly);
       if (mode !== 'exec' && mode !== 'priv' && !neg && !text.trim()) pool = pool.concat([C('no', () => [], {})]);
-      let h = helpFor(pool, text);
+      let h = helpFor(pool, text, ifx);
       if (h.err && mode !== 'exec' && mode !== 'priv' && mode !== 'config') {
-        const g = this._modeCmds(d, 'config'); const h2 = helpFor(neg ? g.filter(c => c.no) : g.filter(c => !c.noOnly), text);
+        const g = this._modeCmds(d, 'config'); const h2 = helpFor(neg ? g.filter(c => c.no) : g.filter(c => !c.noOnly), text, ifx);
         if (!h2.err) h = h2;
       }
       if (h.err) {
@@ -964,11 +1016,15 @@
       if (d.mode !== 'exec' && d.mode !== 'priv' && /^\s*no\s+/i.test(text)) { neg = text.match(/^\s*no\s+/i)[0]; text = text.slice(neg.length); }
       const cmds = this._modeCmds(d, d.mode);
       const pool = neg ? cmds.filter(c => c.no) : cmds.filter(c => !c.noOnly);
-      let h = helpFor(pool, text);
+      const ifx = this._ifCtx(d);
+      let h = helpFor(pool, text, ifx);
       if ((h.err || !h.entries.length) && !['exec', 'priv', 'config'].includes(d.mode)) {
-        const g = this._modeCmds(d, 'config'); h = helpFor(neg ? g.filter(c => c.no) : g.filter(c => !c.noOnly), text);
+        const g = this._modeCmds(d, 'config'); h = helpFor(neg ? g.filter(c => c.no) : g.filter(c => !c.noOnly), text, ifx);
       }
       if (h.err || !h.entries) return raw;
+      const lastTok0 = text.match(/(\S+)$/)[1];
+      // `interface Tw` + Tab → `interface TwoGigabitEthernet` (the number follows, so no space)
+      if (h.ifComplete && /^[a-zA-Z-]+$/.test(lastTok0) && !h.entries.some(e => !/^[A-Z<]/.test(e[0]))) return neg + text.slice(0, text.length - lastTok0.length) + h.ifComplete;
       const kws = h.entries.map(e => e[0]).filter(k => !/^[A-Z<]/.test(k));
       if (kws.length !== 1) return raw;
       const lastTok = text.match(/(\S+)$/)[1];
