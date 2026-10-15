@@ -112,5 +112,32 @@ console.log('\n--- classic track ---');
     }
   }
 }
+// ── GRE (tunnel mode gre ip), rules from Cisco TAC "Determine What Impacts GRE Tunnel Interface States" / "How GRE Keepalives Work"
+console.log('\n--- GRE tunnel ---');
+{
+  let tg = 0; const g = new Lab(TOPO, { now: () => tg }); const logs = [];
+  const gx = (k, c) => { const r = g.exec(k, c); tg += 200; g.tick(); for (const q of g.drainLogs()) logs.push(q.text); return r; };
+  const adv = n => { for (let x = 0; x < n; x++) { tg += 1000; g.tick(); for (const q of g.drainLogs()) logs.push(q.text); } };
+  const lp = k => gx(k, 'show interfaces Tunnel0').lines[0].text;
+  const tun = (k, ip, dst) => { for (const c of ['configure terminal', 'interface Tunnel0', `ip address ${ip} 255.255.255.0`, 'tunnel source TwoGigabitEthernet0/0/0', `tunnel destination ${dst}`, 'end']) gx(k, c); };
+  gx('r1', 'enable'); gx('r3', 'enable');
+  tun('r1', '192.168.100.1', '10.0.23.2');
+  check(/line protocol is down/.test(lp('r1')), 'GRE: no route to the destination → line protocol down');
+  gx('r1', 'configure terminal'); gx('r1', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2'); gx('r1', 'end');
+  check(/line protocol is up/.test(lp('r1')), 'GRE: destination routable → up/up even without a far-end tunnel');
+  check(/Success rate is 0/.test(gx('r1', 'ping 192.168.100.2').lines.map(l => l.text).join('\n')), 'GRE: no mirrored tunnel on R3 → packets dropped');
+  gx('r3', 'configure terminal'); gx('r3', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1'); gx('r3', 'end'); tun('r3', '192.168.100.2', '10.0.12.1');
+  check(/Success rate is 100/.test(gx('r1', 'ping 192.168.100.2').lines.map(l => l.text).join('\n')), 'GRE: mirrored tunnels → ping succeeds');
+  const si = gx('r1', 'show interfaces Tunnel0').lines.map(l => l.text).join('\n');
+  check(/Tunnel protocol\/transport GRE\/IP/.test(si) && /Keepalive not set/.test(si) && /Tunnel transport MTU 1476 bytes/.test(si), 'GRE: show interfaces GRE/IP layout');
+  for (const c of ['configure terminal', 'interface Tunnel0', 'keepalive 2 2', 'end']) gx('r1', c);
+  check(/Keepalive set \(2 sec\), retries 2/.test(gx('r1', 'show interfaces Tunnel0').lines.map(l => l.text).join('\n')), 'GRE: keepalive shown');
+  for (const c of ['configure terminal', 'interface Tunnel0', 'shutdown', 'end']) gx('r3', c); adv(7);
+  check(/line protocol is down/.test(lp('r1')), 'GRE: keepalives unanswered → line protocol down');
+  for (const c of ['configure terminal', 'interface Tunnel0', 'no shutdown', 'end']) gx('r3', c); adv(3);
+  check(/line protocol is up/.test(lp('r1')), 'GRE: keepalive answered again → up');
+  for (const c of ['configure terminal', 'interface Tunnel0', 'no keepalive', 'exit', 'ip route 10.0.23.2 255.255.255.255 Tunnel0', 'end']) gx('r1', c); adv(1);
+  check(/line protocol is down/.test(lp('r1')) && logs.some(l => /%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing/.test(l)), 'GRE: recursive routing → down + %TUN-5-RECURDOWN');
+}
 console.log(`\n${fails ? fails + ' FAILURE(S)' : 'ALL PASSED'}`);
 process.exit(fails ? 1 : 0);

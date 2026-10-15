@@ -465,11 +465,17 @@
     const tuns = lab.tunnels();
     const halves = lab.halfTunnels().filter(h => h.protected && !h.shutdown && h.mode === 'ipsec ipv4');
     const ownerOf = ip => DEVS.find(k => Object.values(lab.dev(k).ifaces).some(i => i.ip === ip && i.kind !== 'tunnel'));
-    const sig = JSON.stringify([fsScale(), tuns.map(t => t.half), tuns.map(t => [tunAddr(t.a.dev, t.a.if), tunAddr(t.b.dev, t.b.if)].map(i => i && i.ip + '/' + i.mask)), tuns.map(t => [t.key, t.state, t.code, t.params && [t.params.pqc, t.params.ppk], t.sa && t.sa.child.down]), halves.map(h => [h.dev, h.if, h.dest])]);
+    const sig = JSON.stringify([fsScale(), lab.greTunnels().map(g => [g.key, g.upA, g.upB]), tuns.map(t => t.half), tuns.map(t => [tunAddr(t.a.dev, t.a.if), tunAddr(t.b.dev, t.b.if)].map(i => i && i.ip + '/' + i.mask)), tuns.map(t => [t.key, t.state, t.code, t.params && [t.params.pqc, t.params.ppk], t.sa && t.sa.child.down]), halves.map(h => [h.dev, h.if, h.dest])]);
     if (sig === tunSig) return; tunSig = sig;
     gTun.innerHTML = '';
     const items = tuns.map(t => ({ key: t.key, a: t.a.dev, b: t.b.dev, ends: [[t.a.dev, t.a.if], [t.b.dev, t.b.if]], ...tunnelView(t) }));
     for (const h of halves) { const o = ownerOf(h.dest); if (o && o !== h.dev) items.push({ key: 'half:' + h.dev + ':' + h.if, a: h.dev, b: o, ends: [[h.dev, h.if]], kind: 'half', st: 'WAITING', label: `${ifShort(h.if)} on ${lab.dev(h.dev).hostname} · no tunnel on ${lab.dev(o).hostname}` }); }
+    for (const g of lab.greTunnels()) {
+      const H = k => lab.dev(k).hostname, tu = ifShort(g.a.if);
+      if (!g.b) { items.push({ key: g.key, a: g.a.dev, b: g.owner, ends: [[g.a.dev, g.a.if]], kind: g.upA ? 'gre' : 'fail', st: g.upA ? 'UP' : 'DOWN', label: `${tu} · GRE · no tunnel on ${H(g.owner)}` }); continue; }
+      const up = g.upA && g.upB;
+      items.push({ key: g.key, a: g.a.dev, b: g.b.dev, ends: [[g.a.dev, g.a.if], [g.b.dev, g.b.if]], kind: up ? 'gre' : 'fail', st: up ? 'UP' : 'DOWN', label: `${tu} · GRE · not encrypted` });
+    }
     const fs = fsScale();
     for (const it of items) {
       const { d, apex, at } = arcPath(it.a, it.b);
@@ -570,6 +576,18 @@
       body.innerHTML = `<p><span class="status-chip" style="background:var(--neg)">WAITING FOR PEER</span></p>
         <p>${esc(H(dv))} has a protected tunnel towards <code>${esc(i ? i.tunnel.dest : '')}</code>, but no router has a matching tunnel back: its <code>tunnel destination</code> must be ${esc(H(dv))}'s source address and its <code>tunnel source</code> must be <code>${esc(i ? i.tunnel.dest : '')}</code>.</p>
         <p>IKEv2 cannot start until both ends exist. Configure the other side.</p>`;
+      return;
+    }
+    const gt = lab.greTunnels().find(x => x.key === inspKey);
+    if (gt) {
+      const R = { source: 'the tunnel source interface is down or has no IP address', destination: 'no tunnel destination is configured', route: 'there is no route to the tunnel destination', recursive: 'the route to the tunnel destination points into the tunnel itself (recursive routing, %TUN-5-RECURDOWN)', keepalive: 'keepalives are not answered', protection: 'GRE over IPsec (tunnel protection on a GRE tunnel) is not modelled in this simulator', shutdown: 'the interface is shut down' };
+      const end = (dv, ifn, up, why) => `<li><b>${esc(H(dv))} ${esc(ifn)}</b>: line protocol <b>${up ? 'up' : 'down'}</b>${!up && why ? ` — ${esc(R[why] || why)}` : ''}</li>`;
+      $('#modal-title').textContent = `GRE tunnel ${H(gt.a.dev)} ${gt.a.if}${gt.b ? ` ⇄ ${H(gt.b.dev)} ${gt.b.if}` : ''}`;
+      body.innerHTML = `<p><span class="status-chip">${gt.upA && (!gt.b || gt.upB) ? 'UP · GRE' : 'DOWN · GRE'}</span></p>
+        <ul>${end(gt.a.dev, gt.a.if, gt.upA, gt.reasonA)}${gt.b ? end(gt.b.dev, gt.b.if, gt.upB, gt.reasonB) : ''}</ul>
+        ${gt.b ? '' : `<div class="err-box"><b>No tunnel on ${esc(H(gt.owner))}.</b> ${esc(H(gt.a.dev))}'s tunnel can be up/up — its destination is routable — but ${esc(H(gt.owner))} has no tunnel whose source and destination mirror it, so it drops the GRE packets. Without <code>keepalive</code>, IOS does not notice.</div>`}
+        <p><b>GRE is not encrypted.</b> It only adds a GRE header and a new IP header; anyone on the path can read the original packets. To encrypt, use an IPsec VTI (<code>tunnel mode ipsec ipv4</code> + <code>tunnel protection ipsec profile …</code>).</p>
+        <p class="src">Line protocol rules: Cisco TAC <i>Determine What Impacts GRE Tunnel Interface States</i> and <i>How GRE Keepalives Work</i>.</p>`;
       return;
     }
     const t = lab.tunnels().find(x => x.key === inspKey);

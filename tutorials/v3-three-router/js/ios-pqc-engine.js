@@ -423,7 +423,7 @@
         case 'loopback': return true;
         case 'tunnel': {
           if (i.tunnel.mode === 'ipsec ipv4') { const st = this._pairOf(devKey, name); return !!(st && st.state === 'up' && this._saOf(st, devKey) && !st.sa.child.down); }
-          return !!(this._srcIp(d, i) && i.tunnel.dest);
+          return this._greState(devKey, i).up;
         }
       }
       return false;
@@ -458,6 +458,82 @@
       }
       return out;
     }
+    /* ---------- GRE (tunnel mode gre ip) ----------
+       Cisco TAC "Determine What Impacts GRE Tunnel Interface States" and "How GRE Keepalives Work":
+       line protocol is up when the tunnel source is an up/up interface with an IP address and the destination is
+       ROUTABLE (a route exists, not necessarily reachable) and not routed through the tunnel itself (recursion);
+       with `keepalive`, it also goes down after `retries` unanswered keepalives. Without keepalives a P2P GRE
+       tunnel stays up/up even when the far end is missing: traffic is then silently dropped. */
+    _greState(devKey, i) {
+      const d = this.devs[devKey], t = i.tunnel;
+      if (t.protection) return { up: false, reason: 'protection' };   // GRE over IPsec: not modelled
+      const src = this._srcIp(d, i);
+      const srcIf = !t.source ? null : isIp(t.source) ? Object.values(d.ifaces).find(x => x.ip === t.source && x.kind !== 'tunnel') : d.ifaces[t.source];
+      if (!t.source || !srcIf || !src || !this.lineUp(devKey, srcIf.name)) return { up: false, reason: 'source' };
+      if (!t.dest) return { up: false, reason: 'destination' };
+      const key = devKey + ':' + i.name;
+      this._greEval = this._greEval || new Set();
+      if (this._greEval.has(key)) return { up: true, reason: null };   // evaluating this tunnel: assume up to see where its destination routes
+      this._greEval.add(key);
+      let r; try { r = this.lookup(devKey, t.dest); } finally { this._greEval.delete(key); }
+      if (!r) return { up: false, reason: 'route' };
+      if (r.iface === i.name) return { up: false, reason: 'recursive' };
+      if (t.ka && t.ka.down) return { up: false, reason: 'keepalive' };
+      return { up: true, reason: null };
+    }
+    // the far end of a GRE tunnel: a router owning the destination with a tunnel whose source/destination mirror ours
+    _grePeer(devKey, i) {
+      const d = this.devs[devKey], s = this._srcIp(d, i), dst = i.tunnel.dest; if (!s || !dst) return null;
+      for (const k of this.order) {
+        if (k === devKey) continue; const D = this.devs[k];
+        if (!Object.values(D.ifaces).some(x => x.ip === dst && x.kind !== 'tunnel')) continue;
+        const U = Object.values(D.ifaces).find(x => x.kind === 'tunnel' && x.tunnel.mode === 'gre ip' && x.tunnel.dest === s && this._srcIp(D, x) === dst);
+        return U ? { dev: k, if: U.name, owner: k } : { dev: null, if: null, owner: k };
+      }
+      return null;
+    }
+    _greKey(a, b) { return 'gre:' + [a, b].sort().join('|'); }
+    // GRE tunnels for the topology and the inspector
+    greTunnels() {
+      const out = [], seen = new Set();
+      for (const k of this.order) for (const i of Object.values(this.devs[k].ifaces)) {
+        if (i.kind !== 'tunnel' || i.tunnel.mode !== 'gre ip' || !i.tunnel.dest) continue;
+        const p = this._grePeer(k, i); if (!p || !p.owner) continue;
+        const key = p.dev ? this._greKey(`${k}:${i.name}`, `${p.dev}:${p.if}`) : `gre-half:${k}:${i.name}`;
+        if (seen.has(key)) continue; seen.add(key);
+        const st = this._greState(k, i), stb = p.dev ? this._greState(p.dev, this.devs[p.dev].ifaces[p.if]) : null;
+        out.push({ key, a: { dev: k, if: i.name }, b: p.dev ? { dev: p.dev, if: p.if } : null, owner: p.owner, shutdown: i.shutdown || (p.dev && this.devs[p.dev].ifaces[p.if].shutdown),
+          upA: this.lineUp(k, i.name), upB: p.dev ? this.lineUp(p.dev, p.if) : null, reasonA: i.shutdown ? 'shutdown' : st.reason, reasonB: stb ? (this.devs[p.dev].ifaces[p.if].shutdown ? 'shutdown' : stb.reason) : null,
+          protection: !!i.tunnel.protection });
+      }
+      return out;
+    }
+    // keepalive timers and line-protocol logging for GRE tunnels (called from reconcile)
+    _greTick() {
+      const now = this.now();
+      for (const k of this.order) for (const i of Object.values(this.devs[k].ifaces)) {
+        if (i.kind !== 'tunnel') continue;
+        const t = i.tunnel;
+        if (t.mode === 'gre ip' && t.ka && !i.shutdown) {
+          while (now >= t.ka.next) {
+            // a keepalive is sent even while the line protocol is down; the far end reflects it if it has a matching
+            // tunnel (its own keepalive setting and line state do not matter) and can route the reply back
+            const p = this._grePeer(k, i), src = this._srcIp(this.devs[k], i);
+            const back = p && p.dev && !this.devs[p.dev].ifaces[p.if].shutdown && this.forward(k, t.dest, { noTunnels: true }).ok && this.forward(p.dev, src).ok;
+            if (back) { t.ka.fails = 0; t.ka.down = false; } else { t.ka.fails++; if (t.ka.fails >= t.ka.retries) t.ka.down = true; }
+            t.ka.next += t.ka.period * 1000;
+          }
+        }
+        if (t.mode !== 'gre ip') { if (t.lineUp) { t.lineUp = false; } continue; }
+        const up = !i.shutdown && this.lineUp(k, i.name);
+        if (t.lineUp === undefined) { t.lineUp = up; continue; }
+        if (up !== t.lineUp) {
+          if (!up && this._greState(k, i).reason === 'recursive') this._log(k, `%TUN-5-RECURDOWN: ${i.name} temporarily disabled due to recursive routing`);
+          if (!i.shutdown) this._log(k, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${i.name}, changed state to ${up ? 'up' : 'down'}`);
+          t.lineUp = up;
+        }
+      }
+    }
     lookup(devKey, ip, opts) {
       const rs = this.routes(devKey, opts).filter(r => inNet(ip, r.net, lenMask(r.len)));
       const rank = { L: 0, C: 1, S: 2 };
@@ -484,6 +560,16 @@
           if (svi && svi.ip === nh && this.lineUp(peer[0], svi.name)) return { dev: peer[0], ingress: svi.name, via: 'link', port: p.name };
         }
         return null;
+      }
+      if (e.kind === 'tunnel' && !opts.noTunnels && e.tunnel.mode === 'gre ip') {
+        if (!this.lineUp(devKey, egress)) return null;
+        const p = this._grePeer(devKey, e);
+        // no matching tunnel on the far end: the GRE packets are dropped there (the local tunnel can still be up/up)
+        if (!p || !p.dev) return null;
+        const U = this.devs[p.dev].ifaces[p.if];
+        if (U.shutdown || !this.lineUp(p.dev, p.if)) return null;
+        if (!this.forward(devKey, e.tunnel.dest, { noTunnels: true }).ok) return null;
+        return { dev: p.dev, ingress: p.if, via: 'tunnel', key: this._greKey(`${devKey}:${egress}`, `${p.dev}:${p.if}`), gre: true };
       }
       if (e.kind === 'tunnel' && !opts.noTunnels) {
         const st = this._pairOf(devKey, egress); if (!st || st.state !== 'up' || !this._saOf(st, devKey) || st.sa.child.down) return null;
@@ -874,7 +960,7 @@
         if (due || (opts.force && opts.force(st))) this._attempt(st);
       }
     }
-    tick() { this.reconcile(); }
+    tick() { this.reconcile(); this._greTick(); }
     _configTouched(devKey) {
       this.devs[devKey].lastChange = this.now();
       for (const st of this.pairState.values()) {
@@ -1322,14 +1408,15 @@
         if (i.desc) out.push(`  Description: ${i.desc}`);
         if (i.ip) out.push(`  Internet address is ${i.ip}/${maskLen(i.mask)}`);
         out.push(`  MTU ${ipsec ? e.tmtu : 9976} bytes, BW 100 Kbit/sec, DLY 50000 usec,`, `     reliability 255/255, txload ${recent ? 2 : 1}/255, rxload ${recent ? 2 : 1}/255`,
-          '  Encapsulation TUNNEL, loopback not set', '  Keepalive not set', `  Tunnel linestate evaluation ${this.lineUp(devKey, name) ? 'up' : 'down'}`,
+          '  Encapsulation TUNNEL, loopback not set', i.tunnel.ka && !ipsec ? `  Keepalive set (${i.tunnel.ka.period} sec), retries ${i.tunnel.ka.retries}` : '  Keepalive not set', `  Tunnel linestate evaluation ${this.lineUp(devKey, name) ? 'up' : 'down'}`,
           `  Tunnel source ${s0 || 'UNKNOWN'}${i.tunnel.source && !isIp(i.tunnel.source) ? ` (${i.tunnel.source})` : ''}, destination ${i.tunnel.dest || 'UNKNOWN'}`);
         if (i.tunnel.source && !isIp(i.tunnel.source)) out.push('   Tunnel Subblocks:', '      src-track:', `         ${name} source tracking subblock associated with ${i.tunnel.source}`,
           `          Set of tunnels with source ${i.tunnel.source}, 1 member (includes iterators), on interface <OK>`);
-        out.push(`  Tunnel protocol/transport ${ipsec ? 'IPSEC/IP' : 'GRE/IP'}`, '  Tunnel TTL 255', `  Tunnel transport MTU ${ipsec ? e.mtu : 1476} bytes`,
+        out.push(`  Tunnel protocol/transport ${ipsec ? 'IPSEC/IP' : 'GRE/IP'}`, ...(ipsec ? [] : ['    Key disabled, sequencing disabled', '    Checksumming of packets disabled']),
+          ipsec ? '  Tunnel TTL 255' : '  Tunnel TTL 255, Fast tunneling enabled', `  Tunnel transport MTU ${ipsec ? e.mtu : 1476} bytes`,
           '  Tunnel transmit bandwidth 8000 (kbps)', '  Tunnel receive bandwidth 8000 (kbps)');
         if (i.tunnel.protection) out.push(`  Tunnel protection via IPSec (profile "${i.tunnel.protection}")`);
-        out.push('  Tunnel state info:', `    State change to up   : ${sa ? fmtDate(sa.establishedAt) : 'never'}`, `    State change to down : ${fmtDate(i.createdAt)}`, '    Last state info      : down - interface not up');
+        if (ipsec) out.push('  Tunnel state info:', `    State change to up   : ${sa ? fmtDate(sa.establishedAt) : 'never'}`, `    State change to down : ${fmtDate(i.createdAt)}`, '    Last state info      : down - interface not up');
         const since = ms => ms == null ? 'never' : hms(Math.floor((this.now() - ms) / 1000));
         out.push(`  Last input ${since(cnt.last)}, output ${since(cnt.last)}, output hang never`, `  Last clearing of "show interface" counters ${since(i.createdAt)}`,
           '  Input queue: 0/375/0/0 (size/max/drops/flushes); Total output drops: 0', '  Queueing strategy: fifo', '  Output queue: 0/0 (size/max)',
@@ -1359,6 +1446,7 @@
           if (i.tunnel.mode !== 'gre ip') b.push(` tunnel mode ${i.tunnel.mode}`);
           if (i.tunnel.dest) b.push(` tunnel destination ${i.tunnel.dest}`);
           if (i.tunnel.protection) b.push(` tunnel protection ipsec profile ${i.tunnel.protection}`);
+          if (i.tunnel.ka) b.splice(b.indexOf(` ip address ${i.ip} ${i.mask}`) + 1 || b.length, 0, ` keepalive ${i.tunnel.ka.period} ${i.tunnel.ka.retries}`);
         }
         b.push('!');
         return b;
@@ -1482,8 +1570,9 @@
         out.push(`Success rate is ${Math.round(succ / count * 100)} percent (${succ}/${count}), round-trip min/avg/max = ${mn}/${avg}/${mx} ms`);
         for (const [h, dir] of [...fwd.hops.map(h => [h, 'out']), ...back.hops.map(h => [h, 'back'])]) {
           if (h.via !== 'tunnel') continue;
-          const st = this.pairState.get(h.key); if (!st || !st.sa) continue;
-          st.sa.counters[h.from].encaps += succ; st.sa.counters[h.to].decaps += succ;
+          const st = this.pairState.get(h.key);
+          if (st && st.sa) { st.sa.counters[h.from].encaps += succ; st.sa.counters[h.to].decaps += succ; }
+          else if (!String(h.key || '').startsWith('gre:')) continue;
           const ti = this.devs[h.from].ifaces[h.egress], tj = this.devs[h.to].ifaces[h.ingress];
           if (ti && ti.cnt) { ti.cnt.outP += succ; ti.cnt.outB += succ * 100; ti.cnt.last = this.now(); }
           if (tj && tj.cnt) { tj.cnt.inP += succ; tj.cnt.inB += succ * 100; tj.cnt.last = this.now(); }
@@ -1626,7 +1715,7 @@
         if (!d.ifaces[name]) {
           const k = ifKind(name);
           if (k === 'phys') return [err('                   ^'), err('% Invalid input detected at \'^\' marker.')];
-          d.ifaces[name] = { name, kind: k, shutdown: false, ip: '', mask: '', desc: '', vlan: null, swMode: null, tunnel: k === 'tunnel' ? { source: '', dest: '', mode: 'gre ip', protection: '' } : null,
+          d.ifaces[name] = { name, kind: k, shutdown: false, ip: '', mask: '', desc: '', vlan: null, swMode: null, tunnel: k === 'tunnel' ? { source: '', dest: '', mode: 'gre ip', protection: '', lineUp: false } : null,
             boot: false, createdAt: lab.now(), cnt: { inP: 0, outP: 0, inB: 0, outB: 0, last: null } };
           if (k === 'tunnel' || k === 'loopback') lab._log(d.key, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${name}, changed state to ${k === 'loopback' ? 'up' : 'down'}`);
         }
@@ -1737,12 +1826,20 @@
         C('tunnel destination A.B.C.D', sub((d, v, neg) => { ifc(d).tunnel.dest = neg ? '' : v[2]; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
         C('tunnel destination', sub((d) => { ifc(d).tunnel.dest = ''; return []; }), { no: true, noOnly: true, when: i => i.kind === 'tunnel' }),
         C('tunnel mode ipsec ipv4', sub((d, v, neg) => { ifc(d).tunnel.mode = neg ? 'gre ip' : 'ipsec ipv4'; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
-        C('tunnel mode gre ip', sub((d) => { ifc(d).tunnel.mode = 'gre ip'; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel mode gre ip', sub((d) => { const t = ifc(d).tunnel; t.mode = 'gre ip'; return t.protection ? [{ text: '% Simulator: GRE over IPsec (tunnel protection on a GRE tunnel) is not modelled; this tunnel stays down. Use "tunnel mode ipsec ipv4" for an IPsec VTI.', cls: 'warn' }] : []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        // GRE keepalives (Cisco "How GRE Keepalives Work"): default 10 s, 3 retries; 0 = off
+        ...['keepalive', 'keepalive <0-32767>', 'keepalive <0-32767> <1-255>'].map(pat => C(pat, sub((d, v, neg) => {
+          const t = ifc(d).tunnel, period = v[1] != null ? +v[1] : 10, retries = v[2] != null ? +v[2] : 3;
+          if (neg || period === 0) { t.ka = null; return []; }
+          t.ka = { period, retries, fails: 0, down: false, next: lab.now() + period * 1000 };
+          return [];
+        }), { no: true, when: i => i.kind === 'tunnel', argHelp: { 1: 'Keepalive period (default 10 seconds)', 2: 'Keepalive retries' } })),
         C('tunnel protection ipsec profile WORD', sub((d, v, neg) => {
           const t = ifc(d).tunnel;
           if (neg) { t.protection = ''; return []; }
           if (!lab._ipsecProf(d, v[4])) return [err(`% IPSec profile ${v[4]} does not exist`)];
-          t.protection = v[4]; return [];
+          t.protection = v[4];
+          return t.mode === 'gre ip' ? [{ text: '% Simulator: GRE over IPsec is not modelled; add "tunnel mode ipsec ipv4" for an IPsec VTI.', cls: 'warn' }] : [];
         }), { no: true, when: i => i.kind === 'tunnel', argHelp: { 4: 'IPSec profile name' } }),
         C('tunnel protection ipsec profile', sub((d) => { ifc(d).tunnel.protection = ''; return []; }), { no: true, noOnly: true, when: i => i.kind === 'tunnel' }),
         C('interface IFACE', (d, v) => ifEnter(d, v[1])),

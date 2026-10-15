@@ -17,7 +17,7 @@
   --warn: var(--ink-muted); --success-soft: transparent; --warn-soft: transparent; --danger-soft: transparent; --info-soft: transparent;
   --cisco-primary: var(--ink-muted); --cisco-brand-blue: var(--action);
   /* tunnel meaning: told apart by lightness and by the label, not hue alone */
-  --classic: #525e6c; --ppk: #02c8ff; --pqc: #0a60ff; --neg: #b4b9c0; --fail: var(--danger);
+  --classic: #525e6c; --ppk: #02c8ff; --pqc: #0a60ff; --neg: #b4b9c0; --fail: var(--danger); --gre: #525e6c;
   --router: var(--ink); --router-top: #f2f7ff; --router-arrow: #0a60ff; --link: #8a939e;
   /* device console — light: ink on white, every colour ≥ 5:1 */
   --term-bg: #ffffff; --term-chrome: #f4f5f7; --term-text: #07182d; --term-strong: #07182d; --term-muted: #525e6c;
@@ -190,6 +190,7 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 #topo .dot-up { fill: var(--success); } #topo .dot-down { fill: var(--fail); }
 #topo .tun { fill: none; stroke-width: 3; stroke-linecap: round; cursor: pointer; }
 #topo .tun-hit { fill: none; stroke: transparent; stroke-width: 18; cursor: pointer; }
+#topo .tun.gre { stroke: var(--gre); stroke-width: 2; stroke-dasharray: 2 5; }
 #topo .tun.classic { stroke: var(--classic); } #topo .tun.ppk { stroke: var(--ppk); } #topo .tun.pqc { stroke: var(--pqc); stroke-width: 5; }
 #topo .tun.neg, #topo .tun.half { stroke: var(--neg); stroke-dasharray: 7 6; animation: dash 1s linear infinite; }
 #topo .tun.fail { stroke: var(--fail); stroke-dasharray: 7 6; }
@@ -320,3 +321,5 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 .t.cmds td:nth-child(2) { width: 48%; }
 .t.cmds code { overflow-wrap: normal; word-break: normal; white-space: normal; }
 .th-sub { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
+.term .warn { color: var(--term-log); }
+.sw.gre { background: repeating-linear-gradient(90deg, var(--gre) 0 2px, transparent 2px 6px); }

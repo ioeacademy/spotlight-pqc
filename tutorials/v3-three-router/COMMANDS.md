@@ -133,7 +133,8 @@ Entering a crypto object that is still incomplete prints the IOS warning, e.g.
 | `switchport access vlan <1-4094>`, `switchport mode access` | ✓ | Physical (LAN switch ports). |
 | `tunnel source IFACE\|A.B.C.D` | ✓ | Tunnel |
 | `tunnel destination A.B.C.D` | ✓ | Tunnel |
-| `tunnel mode ipsec ipv4` / `tunnel mode gre ip` | ✓ | Tunnel |
+| `tunnel mode ipsec ipv4` / `tunnel mode gre ip` | ✓ | Tunnel. `gre ip` (the default) is a plain, unencrypted GRE tunnel. |
+| `keepalive [<0-32767> [<1-255>]]` | ✓ | GRE tunnel keepalives: default 10 s, 3 retries; `0` turns them off. |
 | `tunnel protection ipsec profile WORD` | ✓ | Tunnel (profile must exist). |
 | `interface IFACE`, `end`, `exit` | | |
 
@@ -200,6 +201,7 @@ Entering a crypto object that is still incomplete prints the IOS warning, e.g.
   - the responder has no profile for the initiator's identity → no SA; the initiator rejects the responder's identity → **half-open** tunnel (responder READY and encrypting, initiator none, `%CRYPTO-4-RECVD_PKT_INV_SPI`);
   - ML-KEM required vs none, or different parameter sets → fails like a proposal mismatch; `optional` vs none → classical, silently;
   - harmless config-exchange noise (`% IKEv2 profile not found`, `Error constructing config reply`) on healthy tunnels, as on real routers.
+- **GRE tunnels** (plain, no IPsec), per Cisco TAC *Determine What Impacts GRE Tunnel Interface States* and *How GRE Keepalives Work*: line protocol up when the source is an up interface with an IP address and the destination is routable (not necessarily reachable); down with no route, a down source, recursive routing (`%TUN-5-RECURDOWN`) or unanswered keepalives. Traffic crosses only when the far end has a mirrored tunnel; otherwise the tunnel can be up/up while packets are dropped. GRE over IPsec (`tunnel protection` on a GRE tunnel) is not modelled.
 - **Rekey failures**: a PFS mismatch on `CREATE_CHILD_SA` keeps the IKE SA ("IKE up · no IPsec SA" in the topology).
 - **PFS outcomes** on `clear crypto sa` / rekey, including mismatched groups.
 - **Routing**: connected, static (next hop or exit interface), default route, hop-by-hop forwarding across R1–R2–R3, ARP learned from IKE.
@@ -207,7 +209,7 @@ Entering a crypto object that is still incomplete prints the IOS warning, e.g.
 
 ## 6. Not supported (examples)
 
-Dynamic routing (OSPF, EIGRP, BGP), ACLs, NAT, crypto maps and IKEv1 (`crypto isakmp`), certificates/PKI
+Dynamic routing (OSPF, EIGRP, BGP), GRE over IPsec, mGRE/DMVPN, GRE key/checksum/sequencing options, ACLs, NAT, crypto maps and IKEv1 (`crypto isakmp`), certificates/PKI
 (`crypto pki`, `authentication rsa-sig`), DPD, VRFs, IPv6, `show interfaces` without an interface name (returns `% Incomplete command.`),
 `show ip route static`, `reload`, `erase`. Output of `show logging` and `stats exchange` depends on what was
 run in the session.
