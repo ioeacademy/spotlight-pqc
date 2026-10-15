@@ -298,14 +298,13 @@ ${callout('warn', '<b>Still to do: authentication.</b> The peers still authentic
       html: `
 ${EDU_NOTICE}
 <p>Most networks already have classic VPNs. In this lab you first build one, then make it <b>quantum-safe</b> step by step, without ever losing the tunnel for longer than a renegotiation.</p>
-<table class="t">
-<tr><th>Step</th><th>Change</th><th>Why</th></tr>
-<tr><td>1</td><td><code>crypto ikev2 fragmentation mtu 1400</code></td><td>Prepare for large ML-KEM messages</td></tr>
-<tr><td>2</td><td><code>pqc mlkem768 optional</code> on R1</td><td>Offer ML-KEM, still accept classic peers</td></tr>
-<tr><td>3</td><td><code>pqc mlkem768 optional</code> on R3</td><td>Both sides offer it: the tunnel becomes hybrid</td></tr>
-<tr><td>4</td><td><code>set pfs</code></td><td>Rekeys also use ML-KEM</td></tr>
-<tr><td>5</td><td><code>pqc mlkem768</code> (no <code>optional</code>)</td><td>Refuse classic-only peers</td></tr>
+<table class="t cmds">
+<tr><th class="num">#</th><th>Command <span class="th-sub">on both routers</span></th><th>Why</th></tr>
+<tr><td class="num">1</td><td><code>crypto ikev2 fragmentation mtu 1400</code></td><td>Prepare for large ML-KEM messages</td></tr>
+<tr><td class="num">2</td><td><code>pqc mlkem768 [optional]</code></td><td><code>optional</code> while you migrate: ML-KEM is offered, classic peers still accepted. Remove it at the end to require ML-KEM.</td></tr>
+<tr><td class="num">3</td><td><code>set pfs</code></td><td>Rekeys also use ML-KEM</td></tr>
 </table>
+<p class="big-note">You only need 3 commands :) to migrate to PQC.</p>
 <h4>The lab</h4>
 ${LAB_TABLE}
 ${HOW}`,

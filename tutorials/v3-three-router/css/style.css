@@ -314,3 +314,9 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 .cfg-block-title { font-size: 14px; line-height: 20px; font-weight: 700; margin-top: 6px; padding-left: 28px; position: relative; }
 .cfg-block-num { position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--action); color: var(--accent-text); font-size: 11px; }
 .cfg-block-sub { display: block; font-weight: 400; font-size: 13px; line-height: 18px; color: var(--muted); }
+
+.t th.num, .t td.num { width: 28px; white-space: nowrap; }
+.big-note { font-size: 18px; line-height: 26px; font-weight: 600; margin: 14px 0 6px; }
+.t.cmds td:nth-child(2) { width: 48%; }
+.t.cmds code { overflow-wrap: normal; word-break: normal; white-space: normal; }
+.th-sub { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
