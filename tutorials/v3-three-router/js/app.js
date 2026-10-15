@@ -49,10 +49,23 @@
       line(k, '', '');
       setPrompt(k);
     }
+    const tools = document.createElement('div'); tools.className = 'term-tools';
+    tools.innerHTML = '<button type="button" class="term-tool" id="tool-logs" aria-pressed="true" title="Show or hide syslog and debug lines">Logs</button><button type="button" class="term-tool" id="tool-clear" title="Clear this console">Clear</button>';
+    tabs.appendChild(tools);
+    let logsOn = true; try { logsOn = localStorage.getItem('spq-logs') !== 'off'; } catch (e) { }
+    const setLogs = on => { logsOn = on; terms.classList.toggle('hide-logs', !on); tools.querySelector('#tool-logs').setAttribute('aria-pressed', on); try { localStorage.setItem('spq-logs', on ? 'on' : 'off'); } catch (e) { } };
+    setLogs(logsOn);
+    tools.querySelector('#tool-logs').addEventListener('click', () => { setLogs(!logsOn); scroll(activeDev); });
+    tools.querySelector('#tool-clear').addEventListener('click', () => { T[activeDev].lines.textContent = ''; T[activeDev].inp.focus({ preventScroll: true }); });
     selectDev('r1', false);
   }
+  const TS_RE = /^(\*\w{3}\s+\d+ \d{4} [\d:.]+:)(\s.*)$/s;
+  const PR_RE = /^([A-Za-z0-9_-]+(?:\([^)]*\))?[>#])(.*)$/s;
   function line(k, text, cls) {
-    const d = document.createElement('div'); d.className = 'ln' + (cls ? ' ' + cls : ''); d.textContent = text;
+    const d = document.createElement('div'); d.className = 'ln' + (cls ? ' ' + cls : '');
+    const m = (cls === 'log' || cls === 'debug') ? TS_RE.exec(text) : cls === 'cmd' ? PR_RE.exec(text) : null;
+    if (m) { const a = document.createElement('span'); a.className = cls === 'cmd' ? 'pr' : 'ts'; a.textContent = m[1]; d.append(a, m[2]); }
+    else d.textContent = text;
     T[k].lines.appendChild(d);
     const n = T[k].lines.childElementCount; if (n > 1500) T[k].lines.firstChild.remove();
   }
@@ -127,7 +140,7 @@
       const info = !s.run.length;
       li.innerHTML = `
         <button class="step-head" aria-expanded="false" aria-controls="step-body-${i}">
-          <span class="step-num">${i + 1}</span><span class="step-title">${esc(s.title)}</span><span class="tag ${s.part}">${PART[s.part]}</span>
+          <span class="step-num"><span>${i + 1}</span></span><span class="step-title">${esc(s.title)}</span><span class="tag ${s.part}">${PART[s.part]}</span>
         </button>
         <div class="step-body" id="step-body-${i}">
           ${s.html}
@@ -138,6 +151,7 @@
           </div>
         </div>`;
       li.querySelector('.step-head').addEventListener('click', () => toggleStep(i));
+      structureStep(li);
       addSnippetButtons(li);
       ol.appendChild(li);
     });
@@ -148,6 +162,36 @@
       if (sm) showMe(+sm.dataset.showme);
       if (ct) complete(+ct.dataset.continue);
     });
+  }
+  // reading order inside a step: goal first, the "what each line does" tables folded away
+  function structureStep(li) {
+    const body = li.querySelector('.step-body'); if (!body) return;
+    const goal = body.querySelector('.goal');
+    if (goal) {
+      goal.innerHTML = goal.innerHTML.replace(/^\s*Goal:\s*/, '');
+      const lab = document.createElement('span'); lab.className = 'goal-label'; lab.textContent = 'Goal';
+      goal.prepend(lab); body.prepend(goal);
+    }
+    body.querySelectorAll('table.t:not(.mono)').forEach(t => {
+      const rows = [...t.rows]; if (!rows.length || t.querySelector('th')) return;
+      if (!rows.every(r => r.cells[0] && r.cells[0].firstElementChild && r.cells[0].firstElementChild.tagName === 'CODE')) return;
+      const d = document.createElement('details'); d.className = 'why';
+      d.innerHTML = '<summary>What each line does</summary>';
+      t.replaceWith(d); d.appendChild(t);
+    });
+  }
+  function buildStepNav() {
+    const nav = document.createElement('ol'); nav.className = 'step-nav'; nav.id = 'step-nav'; nav.setAttribute('aria-label', 'Steps');
+    STEPS.forEach((s, i) => {
+      const li = document.createElement('li'); const b = document.createElement('button');
+      b.type = 'button'; b.textContent = i + 1; b.title = `${i + 1}. ${s.title}`; b.setAttribute('aria-label', `Step ${i + 1}: ${s.title}`); b.dataset.status = 'locked';
+      b.addEventListener('click', () => { toggleStep(i, true); const el = $('#step-' + i); el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' }); });
+      li.appendChild(b); nav.appendChild(li);
+    });
+    $('.tut-head').appendChild(nav);
+  }
+  function syncStepNav() {
+    document.querySelectorAll('#step-nav button').forEach((b, i) => { b.dataset.status = done.has(i) ? 'done' : i === cur ? 'active' : 'locked'; b.setAttribute('aria-current', i === cur); });
   }
   function toggleStep(i, force) {
     const li = $('#step-' + i); const open = force !== undefined ? force : !li.classList.contains('open');
@@ -244,6 +288,7 @@
     }
   }
   function updateProgress() {
+    syncStepNav();
     const n = done.size, tot = STEPS.length;
     $('#nav-progress').textContent = `${n} / ${tot}`;
     $('#progress-fill').style.width = (n / tot * 100) + '%';
@@ -293,14 +338,14 @@
     for (const k of DEVS) {
       const x = POS[k], def = TOPO.devices[k];
       const g = el('g', { class: 'router', 'data-dev': k, tabindex: 0, role: 'button', 'aria-label': `Open ${def.hostname} console` }, svg);
-      el('rect', { class: 'ring', x: x - 46, y: Y - 26, width: 92, height: 92, rx: 12 }, g);
-      el('path', { d: `M${x - 36},${Y - 6} v16 a36,11 0 0 0 72,0 v-16`, fill: 'var(--router-body)' }, g);
-      el('ellipse', { cx: x, cy: Y - 6, rx: 36, ry: 11, fill: 'var(--router-top)' }, g);
-      const ar = (d) => el('path', { d, stroke: '#fff', 'stroke-width': 2.2, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, g);
-      ar(`M${x - 22},${Y - 9} l9,0 m-3,-3 l3,3 l-3,3`); ar(`M${x + 22},${Y - 3} l-9,0 m3,-3 l-3,3 l3,3`);
-      ar(`M${x - 4},${Y - 14} l0,0 M${x - 6},${Y - 12} l4,-4 l4,4`); ar(`M${x - 6},${Y + 0} l4,4 l4,-4`);
-      const h = el('text', { class: 'host', x, y: Y + 42, 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
-      const r = el('text', { class: 'role', x, y: Y + 57, 'text-anchor': 'middle' }, g); r.textContent = def.role;
+      // line-icon router (Spotlight iconography: thin strokes in ink, no fill colour)
+      el('circle', { class: 'ring', cx: x, cy: Y, r: 37 }, g);
+      el('circle', { class: 'r-body', cx: x, cy: Y, r: 30 }, g);
+      const ar = d => el('path', { class: 'r-arrow', d }, g);
+      ar(`M${x - 19},${Y - 6} h13 m-4,-4 l4,4 l-4,4`); ar(`M${x + 19},${Y + 6} h-13 m4,-4 l-4,4 l4,4`);
+      ar(`M${x - 6},${Y - 19} v13 m-4,-4 l4,4 l4,-4`); ar(`M${x + 6},${Y + 19} v-13 m-4,4 l4,-4 l4,4`);
+      const h = el('text', { class: 'host', x, y: Y + 54, 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
+      const r = el('text', { class: 'role', x, y: Y + 70, 'text-anchor': 'middle' }, g); r.textContent = def.role;
       g.addEventListener('click', () => selectDev(k, true));
       g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDev(k, true); } });
     }
@@ -320,15 +365,17 @@
   const subnetOf = i => { const m = ip2n(i.mask), len = i.mask.split('.').reduce((a, o) => a + (+o).toString(2).split('1').length - 1, 0); return `${n2ip(ip2n(i.ip) - ip2n(i.ip) % (2 ** 32 - m))}/${len}`; };
   const fsScale = () => +getComputedStyle(document.documentElement).getPropertyValue('--fs') || 1;
   function tunnelView(t) {
-    if (t.state === 'up' && t.half) return { kind: 'fail', label: `${ifShort(t.a.if)} · ⚠ half-open: ${lab.dev(t.half).hostname} has no SA` };
-    if (t.state === 'up' && t.sa.child.down) return { kind: 'fail', label: `${ifShort(t.a.if)} · IKE up · ✕ no IPsec SA` };
+    // status word first (never colour alone), then the interface and what protects the key exchange
+    const tu = ifShort(t.a.if);
+    if (t.state === 'up' && t.half) return { kind: 'fail', st: 'HALF-OPEN', label: `${tu} · ${lab.dev(t.half).hostname} has no SA` };
+    if (t.state === 'up' && t.sa.child.down) return { kind: 'fail', st: 'NO IPSEC SA', label: `${tu} · IKE up` };
     if (t.state === 'up') {
       const p = t.params; const kind = p.pqc ? 'pqc' : p.ppk ? 'ppk' : 'classic';
       const what = p.pqc ? `${PQC_LABEL[p.pqc]} + DH ${p.group}` : p.ppk ? `DH ${p.group} + PPK` : `DH ${p.group} + PSK`;
-      return { kind, label: `${ifShort(t.a.if)} · ${what}` };
+      return { kind, st: 'UP', label: `${tu} · ${what}` };
     }
-    if (t.state === 'fail') return { kind: 'fail', label: `${ifShort(t.a.if)} · ✕ ${t.code}` };
-    return { kind: 'neg', label: `${ifShort(t.a.if)} · negotiating…` };
+    if (t.state === 'fail') return { kind: 'fail', st: 'DOWN', label: `${tu} · ${t.code}` };
+    return { kind: 'neg', st: 'NEGOTIATING', label: tu };
   }
   function drawTunnels() {
     const tuns = lab.tunnels();
@@ -338,7 +385,7 @@
     if (sig === tunSig) return; tunSig = sig;
     gTun.innerHTML = '';
     const items = tuns.map(t => ({ key: t.key, a: t.a.dev, b: t.b.dev, ends: [[t.a.dev, t.a.if], [t.b.dev, t.b.if]], ...tunnelView(t) }));
-    for (const h of halves) { const o = ownerOf(h.dest); if (o && o !== h.dev) items.push({ key: 'half:' + h.dev + ':' + h.if, a: h.dev, b: o, ends: [[h.dev, h.if]], kind: 'half', label: `${ifShort(h.if)} on ${lab.dev(h.dev).hostname} · waiting for ${lab.dev(o).hostname}` }); }
+    for (const h of halves) { const o = ownerOf(h.dest); if (o && o !== h.dev) items.push({ key: 'half:' + h.dev + ':' + h.if, a: h.dev, b: o, ends: [[h.dev, h.if]], kind: 'half', st: 'WAITING', label: `${ifShort(h.if)} on ${lab.dev(h.dev).hostname} · no tunnel on ${lab.dev(o).hostname}` }); }
     const fs = fsScale();
     for (const it of items) {
       const { d, apex, at } = arcPath(it.a, it.b);
@@ -346,7 +393,8 @@
       el('path', { class: 'tun-hit', d }, g);
       el('path', { class: 'tun ' + it.kind, d, id: 'tun-' + cssId(it.key) }, g);
       const lg = el('g', { class: 'tun-label' }, g);
-      const w = it.label.length * 6.3 * fs + 18;
+      const full = `${it.st} · ${it.label}`;
+      const w = full.length * 6.6 * fs + 30;
       // tunnel interface addresses where the arc leaves each router, overlay subnet under the pill
       const addrs = it.ends.map(([dv, ifn]) => ({ dv, i: tunAddr(dv, ifn) })).filter(x => x.i);
       for (const { dv, i } of addrs) {
@@ -358,10 +406,21 @@
       }
       const net = addrs.length ? `overlay ${subnetOf(addrs[0].i)}` : '';
       const h2 = net ? 13 * fs : 0, wb = Math.max(w, net.length * 5.9 * fs + 18);
-      el('rect', { x: apex[0] - wb / 2, y: apex[1] - 11 * fs - h2 / 2, width: wb, height: 22 * fs + h2, rx: 11 * fs, stroke: `var(--${it.kind === 'half' ? 'neg' : it.kind})` }, lg);
+      const col = `var(--${it.kind === 'half' ? 'neg' : it.kind})`;
+      const rect = el('rect', { x: apex[0] - wb / 2, y: apex[1] - 11 * fs - h2 / 2, width: wb, height: 22 * fs + h2, rx: 8, stroke: col }, lg);
       if (net) { const sn = el('text', { class: 'lbl-tun-net', x: apex[0], y: apex[1] + 4 * fs + h2 / 2 + 1, 'text-anchor': 'middle' }, lg); sn.textContent = net; }
-      const tx = el('text', { x: apex[0], y: apex[1] + 4 * fs - h2 / 2, 'text-anchor': 'middle', fill: `var(--${it.kind === 'half' ? 'neg' : it.kind})` }, lg); tx.textContent = it.label;
-      tx.style.fill = `var(--${it.kind === 'half' ? 'neg' : it.kind})`;
+      // status badge: coloured dot + bold status word + details, all in ink for contrast
+      const ty = apex[1] + 4 * fs - h2 / 2;
+      const tx = el('text', { x: apex[0] + 6, y: ty, 'text-anchor': 'middle' }, lg);
+      const s1 = el('tspan', { class: 'st' }, tx); s1.textContent = it.st;
+      const s2 = el('tspan', {}, tx); s2.textContent = ` · ${it.label}`;
+      const dot = el('circle', { cx: 0, cy: ty - 4 * fs, r: 4, fill: col }, lg);
+      // fit the badge to the rendered text when the browser can measure it
+      let tw = 0; try { tw = tx.getComputedTextLength(); } catch (e) { }
+      if (!tw) tw = full.length * 6.6 * fs;
+      const bw = Math.max(tw + 34, net ? net.length * 5.9 * fs + 18 : 0);
+      rect.setAttribute('x', apex[0] - bw / 2); rect.setAttribute('width', bw);
+      dot.setAttribute('cx', apex[0] + 6 - tw / 2 - 9);
       g.addEventListener('click', () => openInspector(it.key));
       g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openInspector(it.key); } });
     }
@@ -509,6 +568,7 @@ SK_pi' = prf+(PPK, SK_pi)    SK_pr' = prf+(PPK, SK_pr)   ← RFC 8784: PPK "${es
   drawStatic();
   buildConsoles();
   renderSteps();
+  buildStepNav();
   refresh();
   activate(0);
   setInterval(() => { lab.tick(); flushLogs(); refresh(); checkStep(); if (inspKey) renderInspector(); }, 500);

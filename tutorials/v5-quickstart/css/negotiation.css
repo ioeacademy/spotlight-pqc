@@ -1,43 +1,43 @@
 /* ── Negotiation lab panel (v5 ?track=negotiate) ── */
-.neg-panel { margin: 10px 0; border: 1px solid var(--accent); border-radius: 10px; background: var(--panel); padding: 10px 12px; font-size: 12.5px; }
+.neg-panel { margin: 12px 0; border: 2px solid var(--action); border-radius: var(--radius-container); background: var(--surface); padding: 12px 14px; font-size: 14px; line-height: 20px; }
 body > .neg-panel { display: none; }
 .neg-head { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; margin-bottom: 6px; }
-.neg-head b { font-size: 13.5px; }
-.neg-sub, .neg-hint, .neg-note { color: var(--muted); font-size: 11.5px; }
+.neg-head b { font-size: 16px; line-height: 24px; }
+.neg-sub, .neg-hint, .neg-note { color: var(--muted); font-size: 12px; line-height: 16px; }
 .neg-presets { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 6px; }
-.neg-preset { font: inherit; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); cursor: pointer; }
+.neg-preset { font: inherit; font-size: 12px; line-height: 16px; font-weight: 700; padding: 3px 9px; border-radius: var(--radius-control); border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
 .neg-preset:hover, .neg-preset:focus-visible { border-color: var(--accent); outline: none; }
 .neg-preset.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .neg-preset.reset { font-weight: 600; }
 .neg-match { font-size: 11.5px; margin: 2px 0 6px; color: var(--text); }
-.neg-label { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 99px; margin-left: 4px; background: var(--success-soft); color: var(--success); }
-.neg-label.inferred, .neg-label.derived { background: var(--warn-soft); color: var(--warn); }
+.neg-label { font-size: 12px; line-height: 16px; font-weight: 700; padding: 0 7px; border-radius: var(--radius-pill); margin-left: 4px; border: 1.5px solid var(--success); color: var(--ink); }
+.neg-label.inferred, .neg-label.derived { border-color: var(--line); border-style: dashed; }
 .neg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 1100px) { .neg-cols { grid-template-columns: 1fr; } }
-.neg-col { border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; background: var(--panel-2); min-width: 0; }
+.neg-col { border: 1px solid var(--line-subtle); border-radius: var(--radius-container); padding: 8px 10px; min-width: 0; }
 .neg-col-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; }
-.neg-ini, .neg-resp { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.neg-ini, .neg-resp { font-size: 12px; line-height: 16px; font-weight: 700; }
 .neg-ini { color: var(--accent); } .neg-resp { color: var(--muted); }
 .neg-row { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; padding: 3px 0; }
-.neg-lbl { color: var(--muted); font-size: 11px; min-width: 86px; }
+.neg-lbl { color: var(--muted); font-size: 12px; line-height: 16px; min-width: 96px; }
 .neg-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; }
-.neg-chip { font: inherit; font-family: var(--font-mono); font-size: 11px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--muted); cursor: pointer; }
-.neg-chip.on { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
-.neg-chip b { display: inline-block; min-width: 12px; margin-right: 3px; color: var(--accent); }
+.neg-chip { font: inherit; font-family: var(--font-mono); font-size: 12px; line-height: 18px; padding: 1px 7px; border-radius: var(--radius-control); border: 1px solid var(--line-subtle); background: transparent; color: var(--muted); cursor: pointer; }
+.neg-chip.on { border-color: var(--action); color: var(--on-action); background: var(--action); }
+.neg-chip b { display: inline-block; min-width: 12px; margin-right: 3px; color: inherit; opacity: .8; }
 .neg-chip:focus-visible, .neg-sel:focus-visible, .neg-in:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.neg-sel, .neg-in { font: inherit; font-size: 11.5px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--text); max-width: 100%; }
+.neg-sel, .neg-in { font: inherit; font-size: 13px; line-height: 18px; padding: 3px 7px; border-radius: var(--radius-control); border: 1px solid var(--line); background: var(--surface); color: var(--ink); max-width: 100%; }
 .neg-in { width: 150px; } .neg-in.mono { font-family: var(--font-mono); }
 .neg-opt { font-size: 11.5px; margin-left: 6px; white-space: nowrap; }
-.neg-who, .neg-predict { margin-top: 6px; border-top: 1px dashed var(--border); padding-top: 6px; }
-.neg-radio { font-size: 12px; white-space: nowrap; margin-right: 6px; cursor: pointer; }
-.neg-cmds { margin-top: 6px; } .neg-cmds summary { cursor: pointer; font-size: 11.5px; color: var(--accent); }
-.neg-cmds pre { margin: 4px 0; padding: 6px 8px; font-family: var(--font-mono); font-size: 11.5px; background: var(--term-bg); color: var(--term-text); border-radius: 6px; overflow-x: auto; }
+.neg-who, .neg-predict { margin-top: 8px; border-top: 1px solid var(--line-subtle); padding-top: 8px; }
+.neg-radio { font-size: 14px; white-space: nowrap; margin-right: 10px; cursor: pointer; } .neg-radio input { accent-color: var(--action); }
+.neg-cmds { margin-top: 6px; } .neg-cmds summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--accent-text); }
+.neg-cmds pre { margin: 6px 0; padding: 8px 10px; font-family: var(--font-mono); font-size: 13px; line-height: 20px; border: 1px solid var(--line); color: var(--ink); border-radius: var(--radius-container); overflow-x: auto; }
 .neg-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
-.neg-out { margin-top: 8px; border-radius: 8px; padding: 8px 10px; border-left: 4px solid var(--border); background: var(--panel-2); }
+.neg-out { margin-top: 10px; border-radius: var(--radius-container); padding: 10px 14px; border: 2px solid var(--line); }
 .neg-out p { margin: 4px 0; }
-.neg-out.up-classic { border-color: var(--classic); } .neg-out.up-pqc { border-color: var(--pqc); } .neg-out.retry { border-color: var(--warn); }
-.neg-out.down { border-color: var(--fail); } .neg-out.half { border-color: var(--fail); background: var(--warn-soft); }
-.neg-out-title { font-weight: 700; font-size: 13px; }
-.neg-ok { color: var(--success); font-weight: 700; font-size: 12px; } .neg-bad { color: var(--fail); font-weight: 700; font-size: 12px; }
+.neg-out.up-classic { border-color: var(--classic); } .neg-out.up-pqc { border-color: var(--pqc); } .neg-out.retry { border-color: var(--ppk); }
+.neg-out.down, .neg-out.half { border-color: var(--fail); } .neg-out.half { border-style: dashed; }
+.neg-out-title { font-weight: 700; font-size: 16px; line-height: 24px; }
+.neg-ok, .neg-bad { font-weight: 700; font-size: 13px; color: var(--ink); } .neg-ok::first-letter { color: var(--success); } .neg-bad::first-letter { color: var(--danger); }
 .neg-look ul { margin: 2px 0 0; padding-left: 18px; } .neg-look code { white-space: normal; }
-.neg-src { font-size: 11px; color: var(--muted); margin-top: 4px; }
+.neg-src { font-size: 12px; line-height: 16px; color: var(--muted); margin-top: 6px; }

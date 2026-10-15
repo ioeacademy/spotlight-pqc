@@ -5,8 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Quick VPN Labs</title>
   <meta name="description" content="Short simulated Cisco IOS XE labs: a classic IKEv2 VPN, a post-quantum ML-KEM VPN, the migration from classic to post-quantum, and negotiation experiments.">
-  <link rel="stylesheet" href="../v3-three-router/css/style.css?v=20261009a">
-  <link rel="stylesheet" href="css/negotiation.css?v=20261009c">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="../v3-three-router/css/style.css?v=20261015b">
+  <link rel="stylesheet" href="css/negotiation.css?v=20261015a">
 </head>
 <body>
   <header class="lab-nav">
@@ -40,8 +43,9 @@
           <span class="legend"><i class="sw classic"></i>Classical</span>
           <span class="legend"><i class="sw ppk"></i>PPK</span>
           <span class="legend"><i class="sw pqc"></i>ML-KEM</span>
-          <span class="legend"><i class="sw neg"></i>Negotiating / down</span>
-          <span class="topo-hint">Click a router for its console · click a tunnel to inspect the handshake</span>
+          <span class="legend"><i class="sw neg"></i>Negotiating</span>
+          <span class="legend"><i class="sw fail"></i>Down / half-open</span>
+          <span class="topo-hint">Click a router for its console · click a tunnel to inspect it</span>
         </div>
         <svg id="topo" viewBox="70 12 820 270" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Topology: R1, R2 and R3 in a row"></svg>
       </div>
@@ -67,6 +71,6 @@
   <script src="../v3-three-router/js/lab-topology.js?v=20261006a"></script>
   <script src="js/quick-steps.js?v=20261009c"></script>
   <script src="js/negotiation-panel.js?v=20261009c"></script>
-  <script src="../v3-three-router/js/app.js?v=20261009b"></script>
+  <script src="../v3-three-router/js/app.js?v=20261015a"></script>
 </body>
 </html>
