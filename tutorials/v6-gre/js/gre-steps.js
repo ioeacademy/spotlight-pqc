@@ -104,14 +104,43 @@ ${callout('warn', '<b>Don\'t route the WAN into the tunnel.</b> If the route to 
       ],
     },
     {
+      id: 'g-mtu', title: 'Adjust the tunnel MTU', part: 'verify', devices: ['r1', 'r3'],
+      html: `
+<p>Every packet in the tunnel gets an extra <b>24 bytes</b>: a new 20-byte IP header and a 4-byte GRE header. The WAN still carries at most 1500 bytes, so the biggest packet that fits inside the tunnel is <b>1500 − 24 = 1476 bytes</b>. That is the tunnel's default IP MTU. See it with the <b>DF</b> (don't fragment) bit set:</p>
+${cfg('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Loopback1 size 1476 df-bit', 'ping 10.3.3.3 source Loopback1 size 1477 df-bit'], 'test')}
+${out(['Packet sent with the DF bit set', 'M.M.M', 'Success rate is 0 percent (0/5)'])}
+<p><b>M</b> means "fragmentation needed": the packet is too big for the tunnel and DF forbids splitting it. Without DF the router fragments it: it gets through, but every big packet becomes two, which costs CPU and throughput, and many applications set DF anyway.</p>
+<p>Cisco's recommendation is to lower the tunnel MTU and clamp TCP, on <b>both</b> routers:</p>
+${cfg('r1', ['interface Tunnel0', ' ip mtu 1400', ' ip tcp adjust-mss 1360'])}
+${cfg('r3', ['interface Tunnel0', ' ip mtu 1400', ' ip tcp adjust-mss 1360'])}
+<table class="t">
+<tr><td><code>ip mtu 1400</code></td><td>The largest IP packet the router sends into the tunnel. 1400 leaves room for more headers: Cisco recommends it because it "covers the most common GRE + IPsec combinations", so the value still works when you encrypt the tunnel later.</td></tr>
+<tr><td><code>ip tcp adjust-mss 1360</code></td><td>Rewrites the MSS in TCP SYN packets crossing the tunnel: 1400 − 20 (IP) − 20 (TCP) = 1360. Hosts then never send TCP segments that need fragmenting, even when the ICMP messages that path MTU discovery relies on are filtered.</td></tr>
+</table>
+${cfg('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Loopback1 size 1400 df-bit', 'ping 10.3.3.3 source Loopback1 size 1401 df-bit'], 'check')}
+<p class="src">Reference: ${'<a href="https://www.cisco.com/c/en/us/support/docs/ip/generic-routing-encapsulation-gre/25885-pmtud-ipfrag.html" target="_blank" rel="noopener">Cisco: IPv4 fragmentation, MTU, MSS and PMTUD with GRE and IPsec</a>'}.</p>
+<div class="goal">Goal: Tunnel0 on R1 and R3 uses <code>ip mtu 1400</code> and <code>ip tcp adjust-mss 1360</code>, and you tested it with a DF ping.</div>`,
+      run: [...runOf('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Loopback1 size 1476 df-bit', 'ping 10.3.3.3 source Loopback1 size 1477 df-bit']),
+        ...runOf('r1', ['configure terminal', 'interface Tunnel0', 'ip mtu 1400', 'ip tcp adjust-mss 1360', 'end']),
+        ...runOf('r3', ['configure terminal', 'interface Tunnel0', 'ip mtu 1400', 'ip tcp adjust-mss 1360', 'end']),
+        ...runOf('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Loopback1 size 1400 df-bit', 'ping 10.3.3.3 source Loopback1 size 1401 df-bit'])],
+      validate: ctx => ['r1', 'r3'].every(k => { const t = greTo(ctx.lab, k, k === 'r1' ? '10.0.23.2' : '10.0.12.1'); return t && t.ipMtu && t.ipMtu <= 1400 && t.mss && t.mss <= t.ipMtu - 40; })
+        && since(ctx, 'r1', e => e.meta && e.meta.kind === 'ping' && / df-bit/.test(e.canon)),
+      hints: [
+        { when: (d, c) => /^ip tcp adjust-mss (\d+)/.test(c) && +/^ip tcp adjust-mss (\d+)/.exec(c)[1] > 1360, text: 'The MSS is the TCP payload: tunnel MTU minus 40 bytes of IP and TCP headers. With <code>ip mtu 1400</code> that is <code>1360</code>.' },
+        { when: (d, c, r, lab) => /^ip mtu/.test(c) && lab.dev(d).mode === 'if' && lab.dev(d).ctx.iface !== 'Tunnel0', text: 'Set the MTU on <b>Tunnel0</b>, not on the WAN interface: the WAN still carries full 1500-byte packets.' },
+      ],
+    },
+    {
       id: 'g-wrap', title: 'Done: a GRE tunnel', part: 'intro', devices: [],
       html: `
-<p>Five commands per router built a tunnel that carries your LANs across a WAN that knows nothing about them.</p>
+<p>A handful of commands per router built a tunnel that carries your LANs across a WAN that knows nothing about them.</p>
 <table class="t">
 <tr><th>What you saw</th><th>Why</th></tr>
 <tr><td>Tunnel0 up/up before R3 existed</td><td>Line protocol only needs a working source and a <i>routable</i> destination (${TAC}).</td></tr>
 <tr><td>Ping failed until R3 had a tunnel</td><td>The far end must have a tunnel with mirrored source and destination to decapsulate.</td></tr>
 <tr><td>Traceroute: one hop</td><td>The WAN is hidden inside GRE.</td></tr>
+<tr><td><code>M.M.M</code> above 1476 bytes</td><td>GRE adds 24 bytes; <code>ip mtu 1400</code> + <code>ip tcp adjust-mss 1360</code> keep packets from needing fragmentation.</td></tr>
 </table>
 ${callout('tip', '<b>Try keepalives.</b> On R1: <code>interface Tunnel0</code> → <code>keepalive 2 2</code>. Then shut Tunnel0 on R3: after two missed keepalives R1\'s tunnel goes down by itself (' + KA + ').')}
 ${callout('warn', '<b>GRE is not encrypted.</b> Anyone on the WAN can read the LAN packets. To encrypt them, turn the tunnel into an IPsec VTI: the <a href="../v5-quickstart/?track=classic">Classic VPN quick lab</a> builds one, and the PQC labs make it quantum-safe.')}`,

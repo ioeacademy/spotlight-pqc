@@ -182,6 +182,8 @@
     'show:crypto ipsec': 'Show IPSEC policy', 'clear:ikev2 sa': 'Clear IKEv2 SAs', 'clear:crypto session': 'Clear crypto sessions (tunnels)',
     'clear:crypto ikev2': 'Clear IKEv2 SAs and statistics', 'debug:crypto ikev2': 'IKEv2 debug messages', 'show:ip route': 'IP routing table',
   };
+  // descriptions for the MTU / ping options (IOS wording)
+  Object.assign(DESC, { 'df-bit': 'enable do not fragment bit in IP header', 'size': 'specify datagram size', 'mtu': 'Set IP Maximum Transmission Unit', 'adjust-mss': 'Adjust the mss of transit packets', 'tcp': 'TCP header compression and/or mss adjustment configuration', 'keepalive': 'Enable keepalive' });
   const ARG_DESC = { WORD: 'WORD', IP: 'A.B.C.D', IFACE: 'Interface', LINE: 'LINE', RANGE: '' };
 
   /* ───────────────────────── Pattern parser ───────────────────────── */
@@ -1350,6 +1352,19 @@
       });
       return out;
     }
+    _showIpInterface(devKey, name) {
+      const d = this.devs[devKey], i = d.ifaces[name];
+      if (!i) return [{ text: '                    ^', cls: 'err' }, { text: '% Invalid input detected at \'^\' marker.', cls: 'err' }];
+      const up = this.lineUp(devKey, name);
+      const out = [`${name} is ${i.shutdown ? 'administratively down' : (up || i.kind !== 'phys' ? 'up' : 'down')}, line protocol is ${up ? 'up' : 'down'}`];
+      if (!i.ip) return [...out, '  Internet protocol processing disabled'];
+      return [...out, `  Internet address is ${i.ip}/${maskLen(i.mask)}`, '  Broadcast address is 255.255.255.255',
+        `  Address determined by ${i.boot ? 'non-volatile memory' : 'setup command'}`, `  MTU is ${this.ipMtu(devKey, name)} bytes`, '  Helper address is not set',
+        '  Directed broadcast forwarding is disabled', '  Outgoing Common access list is not set', '  Outgoing access list is not set',
+        '  Inbound Common access list is not set', '  Inbound  access list is not set', '  Proxy ARP is enabled', '  Local Proxy ARP is disabled',
+        '  Security level is default', '  Split horizon is enabled', '  ICMP redirects are always sent', '  ICMP unreachables are always sent',
+        '  ICMP mask replies are never sent', '  IP fast switching is enabled', '  IP Flow switching is disabled', '  IP CEF switching is enabled'];
+    }
     _showIpIntBrief(devKey) {
       const d = this.devs[devKey];
       const out = ['Interface              IP-Address      OK? Method Status                Protocol'];
@@ -1439,6 +1454,9 @@
         if (i.desc) b.push(` description ${i.desc}`);
         if (i.kind === 'phys' && i.vlan) b.push(` switchport access vlan ${i.vlan}`, ' switchport mode access');
         if (i.ip) b.push(` ip address ${i.ip} ${i.mask}`); else if (i.kind !== 'phys' || !i.vlan) b.push(' no ip address');
+        if (i.ipMtu) b.push(` ip mtu ${i.ipMtu}`);
+        if (i.mss) b.push(` ip tcp adjust-mss ${i.mss}`);
+        if (i.kind === 'tunnel' && i.tunnel.ka) b.push(` keepalive ${i.tunnel.ka.period} ${i.tunnel.ka.retries}`);
         if (i.shutdown) b.push(' shutdown');
         if (i.kind === 'phys' && !i.vlan) b.push(' negotiation auto');
         if (i.kind === 'tunnel') {
@@ -1446,7 +1464,6 @@
           if (i.tunnel.mode !== 'gre ip') b.push(` tunnel mode ${i.tunnel.mode}`);
           if (i.tunnel.dest) b.push(` tunnel destination ${i.tunnel.dest}`);
           if (i.tunnel.protection) b.push(` tunnel protection ipsec profile ${i.tunnel.protection}`);
-          if (i.tunnel.ka) b.splice(b.indexOf(` ip address ${i.ip} ${i.mask}`) + 1 || b.length, 0, ` keepalive ${i.tunnel.ka.period} ${i.tunnel.ka.retries}`);
         }
         b.push('!');
         return b;
@@ -1525,15 +1542,25 @@
     }
 
     /* ---------- ping / traceroute ---------- */
+    // IP MTU of an interface: `ip mtu` if set; a GRE tunnel is 24 bytes below the 1500-byte physical MTU (1476),
+    // an IPsec VTI follows its ESP overhead (Cisco: "Resolve IPv4 Fragmentation, MTU, MSS, and PMTUD Issues with GRE and IPsec")
+    ipMtu(devKey, ifName) {
+      const d = this.devs[devKey], i = d.ifaces[ifName]; if (!i) return 1500;
+      if (i.ipMtu) return i.ipMtu;
+      if (i.kind !== 'tunnel') return 1500;
+      if (i.tunnel.mode === 'gre ip') return 1476;
+      const st = this._pairOf(devKey, ifName), sa = st && st.sa; return espInfo(sa ? sa.params.esp : 'esp-gcm 256').mtu;
+    }
     _ping(devKey, dst, opts) {
-      const d = this.devs[devKey]; const count = opts.repeat || 5;
-      const out = ['Type escape sequence to abort.', `Sending ${count}, 100-byte ICMP Echos to ${dst}, timeout is 2 seconds:`];
+      const d = this.devs[devKey]; const count = opts.repeat || 5, size = opts.size || 100;
+      const out = ['Type escape sequence to abort.', `Sending ${count}, ${size}-byte ICMP Echos to ${dst}, timeout is 2 seconds:`];
       let srcIp = '';
       if (opts.source) {
         if (isIp(opts.source)) { if (!Object.values(d.ifaces).some(i => i.ip === opts.source)) return [{ text: `% Invalid source address- IP address not on any of our up interfaces`, cls: 'err' }]; srcIp = opts.source; }
         else { const i = d.ifaces[opts.source]; if (!i || !i.ip) return [{ text: `% Invalid source interface - IP not enabled or interface is down`, cls: 'err' }]; srcIp = i.ip; }
         out.push(`Packet sent with a source address of ${srcIp} `);
       }
+      if (opts.df) out.push('Packet sent with the DF bit set');
       // traffic triggers any pending IKE negotiation immediately
       for (const s of this.pairState.values()) if ((s.state === 'neg' || s.state === 'fail') && (s.pair.a.dev === devKey || s.pair.b.dev === devKey)) s.initBy = devKey;
       const before = new Set([...this.pairState.values()].filter(s => s.state === 'up').map(s => s.key));
@@ -1552,6 +1579,15 @@
         return { lines: out, ok: false, succ: 0, count, path: { fwd: [{ from: devKey, to: other.dev, via: 'tunnel', key: ht.key, egress: r.iface, ingress: other.if }], back: [] }, srcIp: srcIp || ti.ip, lost: count, half: true };
       }
       const fwd = r ? this.forward(devKey, dst) : { ok: false, hops: [] };
+      // larger than an egress MTU on the way: fragmented, unless DF is set — then that router drops it and answers
+      // "ICMP fragmentation needed" (IOS ping shows M, rate-limited: M.M.M)
+      if (opts.df && fwd.ok) {
+        const tooBig = fwd.hops.find(h => size > this.ipMtu(h.from, h.egress));
+        if (tooBig) {
+          out.push(Array.from({ length: count }, (_, k) => k % 2 ? '.' : 'M').join(''), `Success rate is 0 percent (0/${count})`);
+          return { lines: out, ok: false, succ: 0, count, path: { fwd: fwd.hops.slice(0, fwd.hops.indexOf(tooBig) + 1), back: [] }, srcIp, lost: count, mtu: { dev: tooBig.from, if: tooBig.egress, mtu: this.ipMtu(tooBig.from, tooBig.egress) } };
+        }
+      }
       const back = fwd.ok ? this.forward(fwd.end, srcIp) : { ok: false };
       const ok = fwd.ok && back.ok && (!opts.source || this.owns(devKey, srcIp));
       let lost = 0;
@@ -1574,8 +1610,8 @@
           if (st && st.sa) { st.sa.counters[h.from].encaps += succ; st.sa.counters[h.to].decaps += succ; }
           else if (!String(h.key || '').startsWith('gre:')) continue;
           const ti = this.devs[h.from].ifaces[h.egress], tj = this.devs[h.to].ifaces[h.ingress];
-          if (ti && ti.cnt) { ti.cnt.outP += succ; ti.cnt.outB += succ * 100; ti.cnt.last = this.now(); }
-          if (tj && tj.cnt) { tj.cnt.inP += succ; tj.cnt.inB += succ * 100; tj.cnt.last = this.now(); }
+          if (ti && ti.cnt) { ti.cnt.outP += succ; ti.cnt.outB += succ * size; ti.cnt.last = this.now(); }
+          if (tj && tj.cnt) { tj.cnt.inP += succ; tj.cnt.inB += succ * size; tj.cnt.last = this.now(); }
         }
       } else out.push(`Success rate is 0 percent (0/${count})`);
       return { lines: out, ok, succ, count, path: ok ? { fwd: fwd.hops, back: back.hops } : { fwd: fwd.hops, back: [] }, srcIp, lost };
@@ -1629,6 +1665,7 @@
         C('show history', d => d.history.slice(-20).map(h => '  ' + h)),
         C('show logging', d => ['Syslog logging: enabled (0 messages dropped, 0 flushes, 0 overruns)', '    Console logging: level debugging', '', `Log Buffer (8192 bytes):`, ...d.logBuf]),
         C('show ip interface brief', d => lab._showIpIntBrief(d.key)),
+        C('show ip interface IFACE', (d, v) => lab._showIpInterface(d.key, v[3])),
         C('show ip route', d => lab._showIpRoute(d.key)),
         C('show ip route A.B.C.D', (d, v) => {
           const r = lab.lookup(d.key, v[3]);
@@ -1677,15 +1714,24 @@
       const SHOW_EXEC = SHOW.filter(c => /^show (version|clock|history|ip|interfaces)/.test(c.p));
       const pingRun = (d, v, neg, meta) => {
         const opts = {};
-        for (let i = 2; i < v.length; i += 2) { if (v[i] === 'source') opts.source = v[i + 1]; if (v[i] === 'repeat') opts.repeat = +v[i + 1]; }
+        for (let i = 2; i < v.length; i++) {
+          if (v[i] === 'df-bit') { opts.df = true; continue; }
+          if (v[i] === 'source') opts.source = v[i + 1]; if (v[i] === 'repeat') opts.repeat = +v[i + 1]; if (v[i] === 'size') opts.size = +v[i + 1]; i++;
+        }
         const r = lab._ping(d.key, v[1], opts);
         if (Array.isArray(r)) return r;
         Object.assign(meta, { kind: 'ping', dst: v[1], ok: r.ok, succ: r.succ, count: r.count, path: r.path, lost: r.lost, src: r.srcIp });
         return r.lines;
       };
+      // every order of the extended options (IOS accepts them in any order)
+      const PING_OPTS = [['repeat <1-1000>'], ['source IFACE', 'source A.B.C.D'], ['size <36-18024>'], ['df-bit']];
+      const pingPatterns = (used = [], acc = ['']) => {
+        let outp = acc.map(a => 'ping A.B.C.D' + a);
+        PING_OPTS.forEach((alts, k) => { if (used.includes(k)) return; for (const alt of alts) outp = outp.concat(pingPatterns([...used, k], acc.map(a => a + ' ' + alt))); });
+        return outp;
+      };
       const PING = [
-        C('ping A.B.C.D', pingRun), C('ping A.B.C.D source IFACE', pingRun), C('ping A.B.C.D source A.B.C.D', pingRun),
-        C('ping A.B.C.D repeat <1-1000>', pingRun), C('ping A.B.C.D repeat <1-1000> source IFACE', pingRun), C('ping A.B.C.D source IFACE repeat <1-1000>', pingRun),
+        ...[...new Set(pingPatterns())].map(p => C(p, pingRun, { argHelp: { 2: '' } })),
         C('traceroute A.B.C.D', (d, v, n, meta) => { const r = lab._traceroute(d.key, v[1]); Object.assign(meta, { kind: 'trace', dst: v[1], ok: r.path.ok, path: r.path }); return r.lines; }),
       ].map(c => ({ ...c, cfg: false }));
       const misc = [C('terminal length <0-512>', () => []), C('exit', () => []), C('logout', () => [])].map(c => ({ ...c, cfg: false }));
@@ -1817,6 +1863,12 @@
           return [];
         }), { no: true }),
         C('description LINE', sub((d, v, neg) => { ifc(d).desc = neg ? '' : v.slice(1).join(' '); return []; }), { no: true }),
+        // IP MTU and TCP MSS clamping (Cisco recommends `ip mtu 1400` + `ip tcp adjust-mss 1360` on GRE/IPsec tunnels)
+        C('ip mtu <68-9976>', sub((d, v, neg) => { ifc(d).ipMtu = neg ? null : +v[2]; return []; }), { no: true, when: i => i.kind === 'tunnel', argHelp: { 2: 'MTU (bytes)' } }),
+        C('ip mtu <68-1500>', sub((d, v, neg) => { ifc(d).ipMtu = neg ? null : +v[2]; return []; }), { no: true, when: i => i.kind !== 'tunnel', argHelp: { 2: 'MTU (bytes)' } }),
+        C('ip mtu', sub(d => { ifc(d).ipMtu = null; return []; }), { no: true, noOnly: true }),
+        C('ip tcp adjust-mss <500-1460>', sub((d, v, neg) => { ifc(d).mss = neg ? null : +v[3]; return []; }), { no: true, argHelp: { 3: 'Maximum segment size in bytes' } }),
+        C('ip tcp adjust-mss', sub(d => { ifc(d).mss = null; return []; }), { no: true, noOnly: true }),
         C('description', sub((d) => { ifc(d).desc = ''; return []; }), { no: true, noOnly: true }),
         C('switchport access vlan <1-4094>', sub((d, v, neg) => { ifc(d).vlan = neg ? 1 : +v[3]; return []; }), { no: true, when: i => i.kind === 'phys' }),
         C('switchport mode access', sub(() => []), { no: true, when: i => i.kind === 'phys' }),

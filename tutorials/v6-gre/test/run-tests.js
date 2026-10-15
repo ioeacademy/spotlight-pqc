@@ -32,6 +32,8 @@ check(/Tunnel protocol\/transport GRE\/IP/.test(outs['g-r1:r1:show interfaces Tu
 const tr = outs['g-lan:r1:traceroute 10.3.3.3'].split('\n').filter(l => /^\s+\d+ /.test(l));
 check(tr.length === 1 && /10\.3\.3\.3/.test(tr[0]), 'traceroute LAN→LAN: one hop, straight to R3 (R2 hidden)');
 check(/Success rate is 100/.test(outs['g-lan:r1:ping 10.3.3.3 source Loopback1']), 'LAN to LAN ping through the tunnel');
+check(/M\.M\.M/.test(outs['g-mtu:r1:ping 10.3.3.3 source Loopback1 size 1477 df-bit']) && /Success rate is 100/.test(outs['g-mtu:r1:ping 10.3.3.3 source Loopback1 size 1476 df-bit']), 'default GRE MTU 1476: 1476+DF passes, 1477+DF gets M');
+check(/MTU is 1400 bytes/.test(outs['g-mtu:r1:show ip interface Tunnel0 | include MTU']) && /M\.M\.M/.test(outs['g-mtu:r1:ping 10.3.3.3 source Loopback1 size 1401 df-bit']), 'ip mtu 1400: shown, and 1401+DF gets M');
 check(!run('r2', 'show ip route').includes('10.3.3.0') && !run('r2', 'show ip route').includes('10.1.1.0'), 'R2 never learns the LANs');
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED');
 process.exit(fails ? 1 : 0);
