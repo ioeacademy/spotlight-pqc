@@ -2,13 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <script>try { if (localStorage.getItem('spq-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) { }</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Quick VPN Labs</title>
   <meta name="description" content="Short simulated Cisco IOS XE labs: a classic IKEv2 VPN, a post-quantum ML-KEM VPN, the migration from classic to post-quantum, and negotiation experiments.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
-  <link rel="stylesheet" href="../v3-three-router/css/style.css?v=20261015c">
+  <link rel="stylesheet" href="../v3-three-router/css/style.css?v=20261015d">
   <link rel="stylesheet" href="css/negotiation.css?v=20261015a">
 </head>
 <body>
@@ -23,6 +24,7 @@
       <button class="fs-btn" data-fs="s" aria-pressed="true" title="Normal text">A</button><button class="fs-btn" data-fs="m" aria-pressed="false" title="Larger text">A</button><button class="fs-btn" data-fs="l" aria-pressed="false" title="Largest text">A</button>
     </span>
     <span class="nav-progress" id="nav-progress" aria-live="polite">0 / 0</span>
+    <button class="theme-btn" id="theme-btn" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">☾</button>
     <button class="btn ghost" id="btn-reset" title="Reset all routers and progress">Reset lab</button>
   </header>
 
@@ -71,6 +73,14 @@
   <script src="../v3-three-router/js/lab-topology.js?v=20261006a"></script>
   <script src="js/quick-steps.js?v=20261015c"></script>
   <script src="js/negotiation-panel.js?v=20261009c"></script>
-  <script src="../v3-three-router/js/app.js?v=20261015a"></script>
+  <script src="../v3-three-router/js/app.js?v=20261015d"></script>
+  <script>
+    (function () {   // light by default; dark only when chosen
+      const b = document.getElementById('theme-btn'), r = document.documentElement;
+      const sync = () => { const d = r.dataset.theme === 'dark'; b.textContent = d ? '☀' : '☾'; b.title = b.ariaLabel = d ? 'Switch to light mode' : 'Switch to dark mode'; };
+      b.addEventListener('click', () => { const d = r.dataset.theme !== 'dark'; if (d) r.dataset.theme = 'dark'; else delete r.dataset.theme; try { localStorage.setItem('spq-theme', d ? 'dark' : 'light'); } catch (e) { } sync(); });
+      sync();
+    })();
+  </script>
 </body>
 </html>

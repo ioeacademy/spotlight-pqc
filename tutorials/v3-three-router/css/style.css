@@ -1,4 +1,4 @@
-/* Spotlight PQC labs — Cisco U. Spotlight design system (light + Midnight dark)
+/* Spotlight PQC labs — Cisco U. Spotlight design system (light by default; Midnight dark on request)
    Tokens: https://claude.ai/artifact/XhKRuURB9MHVGDyDS125Li  ·  Inter, Midnight Blue ink, outlined containers,
    blues for meaning, no fills / shadows / side stripes. The app aliases (--bg, --panel, --accent, --pqc…) map onto them. */
 :root { --fs: 1;
@@ -18,24 +18,16 @@
   --cisco-primary: var(--ink-muted); --cisco-brand-blue: var(--action);
   /* tunnel meaning: told apart by lightness and by the label, not hue alone */
   --classic: #525e6c; --ppk: #02c8ff; --pqc: #0a60ff; --neg: #b4b9c0; --fail: var(--danger);
-  --router: var(--ink); --link: #8a939e;
+  --router: var(--ink); --router-top: #f2f7ff; --router-arrow: #0a60ff; --link: #8a939e;
   /* device console (a dark screen in both themes) */
   --term-bg: #07182d; --term-chrome: #0d2440; --term-text: #e8edf3; --term-muted: #8c96a3;
   --term-log: #8fdcff; --term-debug: #b4b9c0; --term-err: #ff8a91; --term-ts: #6f7a88;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --surface: #07182d; --ink: #ffffff; --ink-muted: #b4b9c0; --accent-text: #02c8ff; --line: #b4b9c0; --line-subtle: #2c3d55;
-    --action: #02c8ff; --on-action: #07182d; --focus-ring: #02c8ff; --tint: #0c2140; --accent-hover: #63dbff; --accent-soft: rgba(2, 200, 255, .10);
-    --classic: #b4b9c0; --ppk: #0a60ff; --pqc: #02c8ff; --neg: #525e6c; --link: #6d7a8b;
-    --term-bg: #030e1c; --term-chrome: #0a1d36;
-  }
 }
 :root[data-theme="dark"] {
   --surface: #07182d; --ink: #ffffff; --ink-muted: #b4b9c0; --accent-text: #02c8ff; --line: #b4b9c0; --line-subtle: #2c3d55;
   --action: #02c8ff; --on-action: #07182d; --focus-ring: #02c8ff; --tint: #0c2140; --accent-hover: #63dbff; --accent-soft: rgba(2, 200, 255, .10);
   --classic: #b4b9c0; --ppk: #0a60ff; --pqc: #02c8ff; --neg: #525e6c; --link: #6d7a8b;
-  --term-bg: #030e1c; --term-chrome: #0a1d36;
+  --term-bg: #030e1c; --term-chrome: #0a1d36; --router-top: #0c2140; --router-arrow: #02c8ff;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -182,8 +174,10 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 #topo .role { font-size: calc(12px * var(--fs)); fill: var(--ink-muted); }
 #topo .router { cursor: pointer; }
 #topo .router .ring { fill: none; stroke: transparent; stroke-width: 2; }
-#topo .router .r-body { fill: var(--surface); stroke: var(--router); stroke-width: 1.6; }
-#topo .router .r-arrow { stroke: var(--router); stroke-width: 1.4; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+#topo .router .r-body, #topo .router .r-top { fill: var(--surface); stroke: url(#g-router); stroke-width: 1.8; }
+#topo .router .r-top { fill: var(--router-top); }
+#topo .router .r-arrow { stroke: var(--router-arrow); stroke-width: 1.8; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+#topo .router:hover .r-top { fill: var(--accent-soft); }
 #topo .router:hover .ring { stroke: var(--line-subtle); }
 #topo .router.active .ring { stroke: var(--action); }
 #topo .router:focus { outline: none; }
@@ -304,3 +298,7 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
   .step-body { padding-left: var(--space-4); padding-right: var(--space-4); }
   .verdict { grid-template-columns: 1fr; }
 }
+
+/* theme toggle */
+.theme-btn { font: inherit; font-size: 15px; line-height: 1; width: 32px; height: 30px; border-radius: var(--radius-control); border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+.theme-btn:hover { border-color: var(--action); color: var(--accent-text); }

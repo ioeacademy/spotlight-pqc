@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <script>try { if (localStorage.getItem('spq-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) { }</script>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Spotlight PQC Tutorials</title>
   <meta name="description" content="Browser-based Cisco IOS XE simulations for learning post-quantum IPsec VPNs.">
@@ -11,9 +12,10 @@
   <style>
     /* Cisco U. Spotlight design system: white surface, Midnight Blue ink, Inter, outlined containers */
     :root { --surface: #ffffff; --ink: #07182d; --muted: #525e6c; --line: #525e6c; --line-subtle: #d6d6d6; --accent: #0a60ff; --pqc: #0a60ff; --ppk: #02c8ff; }
-    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --surface: #07182d; --ink: #ffffff; --muted: #b4b9c0; --line: #b4b9c0; --line-subtle: #2c3d55; --accent: #02c8ff; --pqc: #02c8ff; --ppk: #0a60ff; } }
     :root[data-theme="dark"] { --surface: #07182d; --ink: #ffffff; --muted: #b4b9c0; --line: #b4b9c0; --line-subtle: #2c3d55; --accent: #02c8ff; --pqc: #02c8ff; --ppk: #0a60ff; }
     * { box-sizing: border-box; }
+    .theme-btn { position: absolute; top: 16px; right: 16px; font: inherit; font-size: 15px; width: 32px; height: 30px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
+    main { position: relative; }
     body { margin: 0; background: var(--surface); color: var(--ink); font-family: Inter, "Helvetica Neue", Arial, sans-serif; font-size: 16px; line-height: 24px; -webkit-font-smoothing: antialiased; }
     main { max-width: 1040px; margin: 0 auto; padding: 48px 16px 64px; }
     .eyebrow { font-size: 12px; line-height: 16px; color: var(--muted); margin: 0 0 8px; }
@@ -36,6 +38,8 @@
 </head>
 <body>
 <main>
+  <button class="theme-btn" id="theme-btn" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">☾</button>
+
   <p class="eyebrow">Quantum-safe networking labs</p>
   <h1>Spotlight PQC</h1>
   <p class="lead">Simulated Cisco IOS XE labs in the browser for learning quantum-safe IPsec VPNs. No routers needed.</p>
@@ -109,5 +113,13 @@
 
   <footer><b>🎓 Education only.</b> These labs are a simulator for practising commands and learning post-quantum VPN concepts. Output is modelled on Cisco IOS XE and on the Cisco Blogs IPsec series by Julio Gomez, and may differ from real platforms: do not use it to validate configurations. Provided as is, without warranty or support. Not affiliated with or endorsed by Cisco Systems, Inc. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md">Full disclaimer</a>.</footer>
 </main>
+  <script>
+    (function () {   // light by default; dark only when chosen
+      const b = document.getElementById('theme-btn'), r = document.documentElement;
+      const sync = () => { const d = r.dataset.theme === 'dark'; b.textContent = d ? '☀' : '☾'; b.title = b.ariaLabel = d ? 'Switch to light mode' : 'Switch to dark mode'; };
+      b.addEventListener('click', () => { const d = r.dataset.theme !== 'dark'; if (d) r.dataset.theme = 'dark'; else delete r.dataset.theme; try { localStorage.setItem('spq-theme', d ? 'dark' : 'light'); } catch (e) { } sync(); });
+      sync();
+    })();
+  </script>
 </body>
 </html>

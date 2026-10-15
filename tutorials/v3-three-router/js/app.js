@@ -321,6 +321,10 @@
   let gLinks, gTun, gPkt, tunSig = '';
   function drawStatic() {
     svg.innerHTML = '';
+    // router outline: the Spotlight deep blue gradient (Cisco Blue → Medium Blue)
+    const defs = el('defs', {}, svg);
+    const gr = el('linearGradient', { id: 'g-router', x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
+    el('stop', { offset: '0%', 'stop-color': '#009de2' }, gr); el('stop', { offset: '100%', 'stop-color': '#0a60ff' }, gr);
     gTun = el('g', { id: 'g-tun' }, svg);
     gLinks = el('g', { id: 'g-links' }, svg);
     for (const l of TOPO.links) {
@@ -338,14 +342,18 @@
     for (const k of DEVS) {
       const x = POS[k], def = TOPO.devices[k];
       const g = el('g', { class: 'router', 'data-dev': k, tabindex: 0, role: 'button', 'aria-label': `Open ${def.hostname} console` }, svg);
-      // line-icon router (Spotlight iconography: thin strokes in ink, no fill colour)
-      el('circle', { class: 'ring', cx: x, cy: Y, r: 37 }, g);
-      el('circle', { class: 'r-body', cx: x, cy: Y, r: 30 }, g);
+      // Cisco router symbol as a line icon: a cylinder, two arrows meeting on the top face, two leaving it
+      const RX = 34, RY = 12, cy = Y - 8, H = 20;
+      el('rect', { class: 'ring', x: x - RX - 9, y: cy - RY - 8, width: 2 * RX + 18, height: H + 2 * RY + 16, rx: 12 }, g);
+      el('path', { class: 'r-body', d: `M${x - RX},${cy} v${H} a${RX},${RY} 0 0 0 ${2 * RX},0 v${-H}` }, g);
+      el('ellipse', { class: 'r-top', cx: x, cy, rx: RX, ry: RY }, g);
       const ar = d => el('path', { class: 'r-arrow', d }, g);
-      ar(`M${x - 19},${Y - 6} h13 m-4,-4 l4,4 l-4,4`); ar(`M${x + 19},${Y + 6} h-13 m4,-4 l-4,4 l4,4`);
-      ar(`M${x - 6},${Y - 19} v13 m-4,-4 l4,4 l4,-4`); ar(`M${x + 6},${Y + 19} v-13 m-4,4 l4,-4 l4,4`);
-      const h = el('text', { class: 'host', x, y: Y + 54, 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
-      const r = el('text', { class: 'role', x, y: Y + 70, 'text-anchor': 'middle' }, g); r.textContent = def.role;
+      ar(`M${x - RX + 7},${cy + 1} H${x - 11} m-4,-3.5 l4,3.5 l-4,3.5`);    // in, from the left
+      ar(`M${x + RX - 7},${cy - 1} H${x + 11} m4,-3.5 l-4,3.5 l4,3.5`);    // in, from the right
+      ar(`M${x - 3},${cy - 1} V${cy - 9} m-3.5,3.5 l3.5,-3.5 l3.5,3.5`);   // out, up
+      ar(`M${x + 3},${cy + 1} V${cy + 9} m-3.5,-3.5 l3.5,3.5 l3.5,-3.5`);  // out, down
+      const h = el('text', { class: 'host', x, y: Y + 46, 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
+      const r = el('text', { class: 'role', x, y: Y + 62, 'text-anchor': 'middle' }, g); r.textContent = def.role;
       g.addEventListener('click', () => selectDev(k, true));
       g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDev(k, true); } });
     }
