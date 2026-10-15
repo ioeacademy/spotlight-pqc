@@ -37,6 +37,9 @@
   const sa13 = lab => lab.saBetween('r1', 'r3');
   const pingOk = (ctx, dk, ip) => ctx.lab.ranSince(ctx.since, dk, e => e.meta && e.meta.kind === 'ping' && e.meta.dst === ip && e.meta.succ > 0);
   const ran = (ctx, dk, re) => ctx.lab.ranSince(ctx.since, dk, re);
+  // learner typed `pqc …` into a proposal that no policy uses (typical after building the VPN on IKEv2 smart defaults)
+  const pqcUnused = { when: (d, c, r, lab) => /^pqc /.test(c) && lab.dev(d).mode === 'proposal' && !lab.effectiveProposals(d).some(p => p.name === lab.dev(d).ctx.proposal),
+    text: 'This proposal is not used yet, so the tunnel stays classical. Cisco: <i>"attach it to a policy so that the proposal is picked for negotiation"</i>. If you built the VPN on <b>smart defaults</b> (no IKEv2 proposal or policy of your own), the router is still negotiating with the built-in <code>default</code> policy and proposal. Do what the Cisco PQC guide shows: complete this proposal (<code>encryption</code>, <code>integrity</code>, <code>group</code> next to <code>pqc</code>) and attach it to a policy (<code>crypto ikev2 policy …</code> → <code>proposal …</code>), on both routers. Adding <code>pqc</code> to the <code>default</code> proposal also works in this simulator, but Cisco\'s PQC guide does not show it.' };
   const proposalsOf = (lab, dk) => Object.values(lab.dev(dk).crypto.policies).flatMap(p => p.proposals).map(n => lab.dev(dk).crypto.proposals[n]).filter(Boolean);
   // complete chain on `dk`: tunnel → ipsec profile → transform set + ikev2 profile → keyring with the peer's PSK
   function chainTo(lab, dk, peerIp) {
@@ -219,7 +222,7 @@ ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value.
 <div class="goal">Goal: R1 has a complete VPN configuration towards 10.0.23.2, with ML-KEM in its proposal.</div>`,
       run: runOf('r1', R1_PQC),
       validate: ctx => chainTo(ctx.lab, 'r1', '10.0.23.2') && proposalsOf(ctx.lab, 'r1').some(p => p.pqc),
-      hints: [{ when: (d, c) => d === 'r1' && /^pqc mlkem768 required/.test(c), text: 'There is no <code>required</code> keyword: <code>pqc mlkem768</code> on its own is already mandatory.' }],
+      hints: [pqcUnused, { when: (d, c) => d === 'r1' && /^pqc mlkem768 required/.test(c), text: 'There is no <code>required</code> keyword: <code>pqc mlkem768</code> on its own is already mandatory.' }],
     },
     {
       id: 'p-r3', title: 'Mirror it on R3', part: 'pqc', devices: ['r3'],
@@ -324,7 +327,7 @@ ${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 s
 <div class="goal">Goal: R1 offers ML-KEM as optional, and the tunnel is still up.</div>`,
       run: [...runOf('r1', [...addPqc('optional'), 'clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed | include PQC|DH Grp'])],
       validate: ctx => proposalsOf(ctx.lab, 'r1').some(p => p.pqc && p.pqc.mode === 'optional') && !!sa13(ctx.lab),
-      hints: [{ when: (d, c) => d === 'r1' && /^pqc mlkem768$/.test(c), text: 'Without <code>optional</code>, R1 would <b>require</b> ML-KEM and reject R3, which doesn\'t support it yet. Use <code>pqc mlkem768 optional</code> during the migration.' }],
+      hints: [pqcUnused, { when: (d, c) => d === 'r1' && /^pqc mlkem768$/.test(c), text: 'Without <code>optional</code>, R1 would <b>require</b> ML-KEM and reject R3, which doesn\'t support it yet. Use <code>pqc mlkem768 optional</code> during the migration.' }],
     },
     {
       id: 'm-r3', title: 'Step 3 · Offer ML-KEM on R3', part: 'pqc', devices: ['r3', 'r1'],
@@ -337,7 +340,7 @@ ${callout('info', 'An SA never changes by itself: it keeps the algorithms it was
 <div class="goal">Goal: the R1–R3 SA uses ML-KEM-768.</div>`,
       run: [...runOf('r3', addPqc('optional')), ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])],
       validate: ctx => !!(sa13(ctx.lab) && sa13(ctx.lab).params.pqc),
-      hints: [{ when: (d, c, r, lab) => /^show crypto ikev2 sa/.test(c) && ['r1', 'r3'].every(k => proposalsOf(lab, k).some(p => p.pqc)) && sa13(lab) && !sa13(lab).params.pqc, text: 'Both sides offer ML-KEM, but this SA was negotiated before. Run <code>clear crypto ikev2 sa</code>.' }],
+      hints: [pqcUnused, { when: (d, c, r, lab) => /^show crypto ikev2 sa/.test(c) && ['r1', 'r3'].every(k => proposalsOf(lab, k).some(p => p.pqc)) && sa13(lab) && !sa13(lab).params.pqc, text: 'Both sides offer ML-KEM, but this SA was negotiated before. Run <code>clear crypto ikev2 sa</code>.' }],
     },
     {
       id: 'm-pfs', title: 'Step 4 · Quantum-safe rekeys with set pfs', part: 'pqc', devices: ['r1', 'r3'],
@@ -364,7 +367,7 @@ ${callout('tip', 'With both sides enforcing ML-KEM, a classic-only peer is now <
 <div class="goal">Goal: both proposals require ML-KEM and the tunnel is up with ML-KEM-768.</div>`,
       run: [...runOf('r1', addPqc('required')), ...runOf('r3', addPqc('required')), ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show running-config | section CLASSIC-PROPOSAL'])],
       validate: ctx => ['r1', 'r3'].every(k => proposalsOf(ctx.lab, k).some(p => p.pqc && p.pqc.mode === 'required')) && !!(sa13(ctx.lab) && sa13(ctx.lab).params.pqc),
-      hints: [{ when: (d, c) => /^pqc mlkem768 required/.test(c), text: 'There is no <code>required</code> keyword. Type <code>pqc mlkem768</code> on its own.' }],
+      hints: [pqcUnused, { when: (d, c) => /^pqc mlkem768 required/.test(c), text: 'There is no <code>required</code> keyword. Type <code>pqc mlkem768</code> on its own.' }],
     },
     {
       id: 'm-wrap', title: 'Done: classic → post-quantum', part: 'intro', devices: [],

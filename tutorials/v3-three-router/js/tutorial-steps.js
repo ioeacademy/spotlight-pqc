@@ -51,6 +51,9 @@
     const sa = ctx.lab.saBetween(dk, peer);
     return shown && !!sa && sa.counters[dk].encaps > 0;
   }
+  // learner typed `pqc …` into a proposal that no policy uses (typical after building the VPN on IKEv2 smart defaults)
+  const pqcUnused = { when: (d, c, r, lab) => /^pqc /.test(c) && lab.dev(d).mode === 'proposal' && !lab.effectiveProposals(d).some(p => p.name === lab.dev(d).ctx.proposal),
+    text: 'This proposal is not used yet, so the tunnel stays classical. Cisco: <i>"attach it to a policy so that the proposal is picked for negotiation"</i>. If you built the VPN on <b>smart defaults</b> (no IKEv2 proposal or policy of your own), the router is still negotiating with the built-in <code>default</code> policy and proposal. Do what the Cisco PQC guide shows: complete this proposal (<code>encryption</code>, <code>integrity</code>, <code>group</code> next to <code>pqc</code>) and attach it to a policy (<code>crypto ikev2 policy …</code> → <code>proposal …</code>), on both routers. Adding <code>pqc</code> to the <code>default</code> proposal also works in this simulator, but Cisco\'s PQC guide does not show it.' };
   const proposalsOf = (lab, dk) => Object.values(lab.dev(dk).crypto.policies).flatMap(p => p.proposals).map(n => lab.dev(dk).crypto.proposals[n]).filter(Boolean);
 
   /* ---------- shared config blocks ---------- */
@@ -305,6 +308,7 @@ ${callout('tip', 'Instead of clearing the SA, the guide suggests shutting the tu
       ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])],
     validate: ctx => { const sa = ctx.lab.saBetween('r1', 'r3'); return !!(sa && sa.params.pqc === 'mlkem768'); },
     hints: [
+      pqcUnused,
       { when: (d, c, r, lab) => /^show crypto ikev2 sa detail/.test(c) && lab.saBetween('r1', 'r3') && lab.saBetween('r1', 'r3').params.pqc && !lab.saBetween('r1', 'r3').params.frag, text: 'ML-KEM is up, but the output says <code>Fragmentation not configured</code>. The guide recommends <code>crypto ikev2 fragmentation mtu 1400</code> on <b>both</b> peers so that large PQC messages don\'t depend on IP fragmentation.' },
       { when: (d, c, r, lab) => /^show crypto ikev2 sa/.test(c) && ['r1', 'r3'].every(k => proposalsOf(lab, k).some(p => p.pqc)) && lab.saBetween('r1', 'r3') && !lab.saBetween('r1', 'r3').params.pqc, text: 'Both proposals now offer ML-KEM, but this SA was negotiated earlier. <code>clear crypto ikev2 sa</code> to renegotiate.' },
     ],

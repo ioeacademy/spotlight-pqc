@@ -526,13 +526,25 @@
       }
       return null;
     }
+    // the `default` proposal is the built-in one unless it was edited (`crypto ikev2 proposal default`)
+    _proposal(d, name) {
+      if (d.crypto.proposals[name]) return d.crypto.proposals[name];
+      return name === 'default' && d.crypto.defaults.proposal ? DEFAULT_PROPOSAL : null;
+    }
     _policyProposals(d) {
       const out = [];
+      const ok = p => p && p.enc.length && p.group.length;
       // user-defined policies first; the default policy (proposal "default") only when none is complete
-      const userOk = Object.values(d.crypto.policies).some(pol => pol.proposals.some(n => { const p = d.crypto.proposals[n]; return p && p.enc.length && p.group.length; }));
-      if (!userOk && d.crypto.defaults.policy && d.crypto.defaults.proposal) return [{ name: 'default', ...DEFAULT_PROPOSAL }];
-      for (const pol of Object.values(d.crypto.policies)) for (const pn of pol.proposals) {
-        const p = d.crypto.proposals[pn];
+      const pols = Object.entries(d.crypto.policies).filter(([n]) => n !== 'default');
+      const userOk = pols.some(([, pol]) => pol.proposals.some(n => ok(this._proposal(d, n))));
+      if (!userOk) {
+        if (!d.crypto.defaults.policy) return out;
+        const dp = d.crypto.policies.default ? d.crypto.policies.default.proposals : ['default'];
+        for (const pn of dp) { const p = this._proposal(d, pn); if (ok(p) && !out.some(o => o.name === pn)) out.push({ name: pn, ...p }); }
+        return out;
+      }
+      for (const [, pol] of pols) for (const pn of pol.proposals) {
+        const p = this._proposal(d, pn);
         if (p && p.enc.length && (p.integ.length || p.enc.every(e => e.includes('gcm'))) && p.group.length && !out.some(o => o.name === pn)) out.push({ name: pn, ...p });
       }
       return out;
@@ -1396,7 +1408,7 @@
     _incompleteMsg(d, coll, o) {
       if (coll === 'proposals' && !(o.enc.length && o.group.length && (o.integ.length || (o.enc.every(e => e.includes('gcm')) && o.prf))))
         return ['IKEv2 proposal MUST either have a set of an encryption algorithm other than aes-gcm, an integrity algorithm and a DH group configured or', ' encryption algorithm aes-gcm, a prf algorithm and a DH group configured'];
-      if (coll === 'policies' && !o.proposals.some(n => { const p = d.crypto.proposals[n]; return p && p.enc.length && p.group.length; }))
+      if (coll === 'policies' && !o.proposals.some(n => { const p = this._proposal(d, n); return p && p.enc.length && p.group.length; }))
         return ['IKEv2 policy MUST have atleast one complete proposal attached'];
       if (coll === 'profiles' && !(o.authLocal && o.authRemote && o.matchRemote.length))
         return ['IKEv2 profile MUST have:', '   1. A local and a remote authentication method.', '   2. A match identity or a match certificate or match any statement.'];
@@ -1485,7 +1497,8 @@
           const blk = (n, p) => [` IKEv2 proposal: ${n}`, `     Encryption : ${p.enc.map(e => e.toUpperCase()).join(' ')}`, `     Integrity  : ${p.integ.map(e => e.toUpperCase()).join(' ')}`,
             `     PRF        : ${(p.prf ? [p.prf] : p.integ).map(e => e.toUpperCase()).join(' ')}`, `     DH Group   : ${p.group.map(g => DH_SHOW[g] || 'Group ' + g).join(' ')}`,
             `     PQC Key Exchange: ${p.pqc ? p.pqc.algs.map(a => PQC_LABEL[a]).join(' ') : 'none'}`];
-          const all = [...Object.entries(d.crypto.proposals), ...(d.crypto.defaults.proposal ? [['default', DEFAULT_PROPOSAL]] : [])].filter(([n]) => !only || n === only);
+          const def = d.crypto.proposals.default || (d.crypto.defaults.proposal ? DEFAULT_PROPOSAL : null);
+          const all = [...Object.entries(d.crypto.proposals).filter(([n]) => n !== 'default'), ...(def ? [['default', def]] : [])].filter(([n]) => !only || n === only);
           return all.flatMap(([n, p]) => blk(n, p));
         };
       const SHOW = [
@@ -1525,8 +1538,8 @@
         C('show crypto ikev2 proposal WORD', (d, v) => showProposals(d, v[4])),
         C('show crypto ikev2 policy', d => {
           const blk = (n, fvrf, props) => [` IKEv2 policy : ${n}`, `      Match fvrf ${n === 'default' ? ':' : ' :'} ${fvrf}`, '      Match address local : any', '      Match application type : any', ...props.map(x => `      Proposal    : ${x}`)];
-          const user = Object.entries(d.crypto.policies).map(([n, p]) => blk(n, 'global', p.proposals));
-          if (d.crypto.defaults.policy) user.push(blk('default', 'any', ['default']));
+          const user = Object.entries(d.crypto.policies).filter(([n]) => n !== 'default').map(([n, p]) => blk(n, 'global', p.proposals));
+          if (d.crypto.defaults.policy) user.push(blk('default', 'any', d.crypto.policies.default ? d.crypto.policies.default.proposals : ['default']));
           return user.flatMap((b, i) => i ? ['', ...b] : b);
         }),
         C('show crypto ikev2 profile', d => Object.entries(d.crypto.profiles).flatMap(([n, p], k) => [...(k ? [''] : []), `IKEv2 profile: ${n}`, ' Shutdown : No', ` Ref Count: ${1 + Object.values(d.crypto.ipsecProfiles).filter(x => x.ikev2Profile === n).length * 2 + Object.values(d.ifaces).filter(x => x.tunnel && x.tunnel.protection && (d.crypto.ipsecProfiles[x.tunnel.protection] || {}).ikev2Profile === n).length * 2}`,
@@ -1609,7 +1622,14 @@
           if (coll === 'ipsecProfiles' && Object.values(d.ifaces).some(i => i.tunnel && i.tunnel.protection === name)) return [err(`% Profile ${name} is in use by tunnel interface(s); remove "tunnel protection" first`)];
           delete store[name]; return [];
         }
-        if (!store[name]) { store[name] = mk(); if (coll === 'ipsecProfiles' && name === 'default') Object.assign(store[name], { ts: 'default', tsList: ['default'] }); }
+        if (!store[name]) {
+          store[name] = mk();
+          // `crypto ikev2 proposal|policy|ipsec profile default` edits the built-in construct. Documented in general
+          // ("You can modify the default configuration"); `pqc` under the default proposal is NOT shown in Cisco's PQC guide (inferred)
+          if (name === 'default' && coll === 'ipsecProfiles') Object.assign(store[name], { ts: 'default', tsList: ['default'] });
+          if (name === 'default' && coll === 'proposals') Object.assign(store[name], JSON.parse(JSON.stringify(DEFAULT_PROPOSAL)));
+          if (name === 'default' && coll === 'policies') store[name].proposals = ['default'];
+        }
         d.mode = mode; d.ctx = { [ctxKey]: name };
         return lab._incompleteMsg(d, coll, store[name]);
       };
@@ -1731,7 +1751,7 @@
         C('proposal WORD', (d, v, neg) => {
           const p = cp(d).policies[d.ctx.policy];
           if (neg) { p.proposals = p.proposals.filter(x => x !== v[1]); return []; }
-          if (!cp(d).proposals[v[1]]) return [err(`% IKEv2 proposal ${v[1]} does not exist. Please configure the proposal first.`)];
+          if (!lab._proposal(d, v[1])) return [err(`% IKEv2 proposal ${v[1]} does not exist. Please configure the proposal first.`)];
           if (!p.proposals.includes(v[1])) p.proposals.push(v[1]); return [];
         }, { no: true, argHelp: { 1: 'Specify Proposal' } }),
         C('match address local A.B.C.D', () => [], { no: true }), C('match fvrf any', () => [], { no: true }),
