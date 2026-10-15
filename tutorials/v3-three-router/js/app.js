@@ -43,6 +43,17 @@
       inp.addEventListener('keydown', e => onKey(k, e));
       // "?" typed via IME/paste (no keydown): IOS always treats it as a help request
       inp.addEventListener('input', () => { const i = inp.value.indexOf('?'); if (i >= 0) { inp.value = inp.value.slice(0, i); showHelp(k); } });
+      // multi-line paste behaves like a terminal: every complete line is entered as a command,
+      // a last line without a newline stays in the input for the learner to finish
+      inp.addEventListener('paste', e => {
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (!/[\r\n]/.test(text)) return;
+        e.preventDefault();
+        const start = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? inp.value.length;
+        const all = (inp.value.slice(0, start) + text + inp.value.slice(end)).replace(/\r\n?/g, '\n').replace(/\t/g, ' ');
+        const lines = all.split('\n'); const rest = lines.pop();
+        pasteLines(k, lines, rest);
+      });
       line(k, `${def.hostname} con0 is now available — Cisco ${def.model}, IOS XE 26.2 (simulated)`, 'term-banner');
       line(k, 'Educational simulator: output may differ from real routers. Not for validating configurations.', 'term-banner');
       line(k, `Type "?" for help. Tab completes, ↑/↓ recall history, Ctrl+Z leaves config mode.`, 'term-banner');
@@ -111,6 +122,14 @@
       t.hist++; if (t.hist >= hist.length) { t.hist = -1; inp.value = t.draft; } else inp.value = hist[t.hist];
     } else if ((e.ctrlKey && (e.key === 'z' || e.key === 'Z'))) { e.preventDefault(); inp.value = ''; submit(k, 'end'); }
     else if (e.ctrlKey && (e.key === 'c' || e.key === 'C') && !String(window.getSelection())) { e.preventDefault(); line(k, lab.prompt(k) + inp.value + '^C', 'cmd'); inp.value = ''; scroll(k); }
+  }
+  async function pasteLines(k, lines, rest) {
+    const t = T[k]; t.inp.value = ''; t.hist = -1;
+    // drop the blank lines that editors add around a copied block, keep blank lines inside it
+    while (lines.length && !lines[0].trim()) lines.shift();
+    for (const l of lines) { submit(k, l.replace(/\s+$/, '')); await sleep(reduceMotion ? 0 : 25); }
+    t.inp.value = rest.replace(/^\s+$/, '');
+    t.inp.focus({ preventScroll: true });
   }
   function showHelp(k) {
     const v = T[k].inp.value;
