@@ -29,7 +29,7 @@
     const d = lab.dev(dk), c = d.crypto;
     return Object.values(d.ifaces).some(t => {
       if (t.kind !== 'tunnel' || t.shutdown || t.tunnel.mode !== 'ipsec ipv4' || t.tunnel.dest !== peerIp || !t.ip) return false;
-      const ip = c.ipsecProfiles[t.tunnel.protection]; if (!ip || !c.tsets[ip.ts]) return false;
+      const ip = lab.ipsecProfileOf(dk, t.tunnel.protection); if (!ip || !(ip.tsList && ip.tsList.length ? ip.tsList : ip.ts ? [ip.ts] : ['default']).some(n => lab.tsetOf(dk, n))) return false;
       const pr = c.profiles[ip.ikev2Profile]; if (!pr || pr.authLocal !== 'pre-share' || pr.authRemote !== 'pre-share') return false;
       if (!pr.matchRemote.some(m => m.ip === peerIp)) return false;
       if (pr.authLocalKey && pr.authRemoteKey) return true;
@@ -37,7 +37,8 @@
       return Object.values(kr.peers).some(p => p.address === peerIp && p.psk);
     });
   }
-  const hasPolicy = (lab, dk) => Object.values(lab.dev(dk).crypto.policies).some(p => p.proposals.some(n => { const x = lab.dev(dk).crypto.proposals[n]; return x && x.enc.length && x.group.length; }));
+  // a complete user policy, or the IKEv2 smart defaults (default policy + default proposal) when none is configured
+  const hasPolicy = (lab, dk) => lab.effectiveProposals(dk).length > 0;
   const pingOk = (ctx, dk, ip) => ctx.lab.ranSince(ctx.since, dk, e => e.meta && e.meta.kind === 'ping' && e.meta.dst === ip && e.meta.succ > 0);
   const ran = (ctx, dk, re) => ctx.lab.ranSince(ctx.since, dk, re);
   // proof of encryption: a successful ping through the tunnel, then `show crypto ipsec sa` AFTER it,
@@ -180,6 +181,7 @@ ${cfg('r1', R1_CLASSIC.slice(1, -1).filter(l => !/^\s*exit$/.test(l)))}
 <tr><td><code>tunnel source TwoGigabitEthernet0/0/0</code></td><td>The tunnel is sourced from the WAN interface. 10.0.23.2 is two hops away, through R2.</td></tr>
 </table>
 ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value, not a recommendation. A pre-shared key must be long and random: RFC 7296 §2.15 warns that human-memorable keys can be guessed offline. In production, use a long randomly generated key or certificates.`)}
+${callout('info', '<b>Smart defaults.</b> The proposal and policy are optional: with no complete IKEv2 policy configured, IOS XE uses its built-in <code>default</code> policy and <code>default</code> proposal (AES-CBC-256, SHA512/SHA384, DH 19/14/21). Check with <code>show crypto ikev2 proposal default</code>. This lab configures them explicitly so both ends agree on group 20, and because Part 9 adds ML-KEM to the proposal.')}
 ${callout('tip', 'In real IOS the indentation is cosmetic. Type <code>exit</code> to leave a sub-mode, or just type the next global command and the parser drops back to global configuration on its own.')}
 <div class="goal">Goal: R1 has a complete tunnel → IPsec profile → IKEv2 profile → keyring chain towards 10.0.23.2.</div>`,
     run: runOf('r1', R1_CLASSIC),

@@ -43,10 +43,10 @@
     const c = lab.dev(dk).crypto;
     return Object.values(lab.dev(dk).ifaces).some(t => {
       if (t.kind !== 'tunnel' || t.shutdown || t.tunnel.mode !== 'ipsec ipv4' || t.tunnel.dest !== peerIp || !t.ip) return false;
-      const ip = c.ipsecProfiles[t.tunnel.protection]; if (!ip || !c.tsets[ip.ts]) return false;
+      const ip = lab.ipsecProfileOf(dk, t.tunnel.protection); if (!ip || !(ip.tsList && ip.tsList.length ? ip.tsList : ip.ts ? [ip.ts] : ['default']).some(n => lab.tsetOf(dk, n))) return false;
       const pr = c.profiles[ip.ikev2Profile]; if (!pr || pr.authLocal !== 'pre-share' || pr.authRemote !== 'pre-share' || !pr.matchRemote.some(m => m.ip === peerIp)) return false;
       const kr = c.keyrings[pr.keyringLocal]; return !!kr && Object.values(kr.peers).some(p => p.address === peerIp && p.psk);
-    }) && proposalsOf(lab, dk).some(p => p.enc.length && p.group.length);
+    }) && lab.effectiveProposals(dk).length > 0;   // a complete user policy, or the IKEv2 smart defaults
   }
   // proof of encryption: a ping through the tunnel, then `show crypto ipsec sa` after it, with encaps > 0
   function encryptionProven(ctx, dk, tunIp, peer) {
@@ -149,6 +149,7 @@ ${cfg('r1', shown(R1_CLASSIC))}
 <tr><td><code>tunnel destination</code></td><td>R3's WAN address. R2 just forwards the encrypted packets.</td></tr>
 </table>
 ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value. Real pre-shared keys must be long and random.`)}
+${callout('info', '<b>Smart defaults.</b> The proposal and policy are optional: with no complete IKEv2 policy configured, IOS XE uses its built-in <code>default</code> policy and <code>default</code> proposal (AES-CBC-256, SHA512/SHA384, DH 19/14/21). Check with <code>show crypto ikev2 proposal default</code>. This lab configures them explicitly so both ends agree on group 20, and because the PQC labs add ML-KEM to the proposal.')}
 <div class="goal">Goal: R1 has a complete VPN configuration towards 10.0.23.2.</div>`,
       run: runOf('r1', R1_CLASSIC),
       validate: ctx => chainTo(ctx.lab, 'r1', '10.0.23.2'),

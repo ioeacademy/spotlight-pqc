@@ -360,6 +360,24 @@
       const d = this.devs[devKey]; if (!d.debug.ikev2 && !d.debug.err) return;
       this.logQueue.push({ dev: devKey, text: `${this._ts()}: IKEv2-ERROR:${sid == null ? '' : `(SESSION ID = ${sid},SA ID = 1):`}${msg}`, cls: 'debug' });
     }
+    // IKEv2 / IPsec smart defaults (Cisco "Configuring IKEv2" — IKEv2 Smart Defaults): the built-in
+    // `default` transform set and IPsec profile are usable objects, not just show output
+    _tset(d, name) {
+      if (d.crypto.tsets[name]) return d.crypto.tsets[name];
+      return name === 'default' && d.crypto.defaults.tset ? { esp: 'esp-aes esp-sha-hmac', mode: 'transport', builtin: true } : null;
+    }
+    _ipsecProf(d, name) {
+      if (d.crypto.ipsecProfiles[name]) return d.crypto.ipsecProfiles[name];
+      return name === 'default' && d.crypto.defaults.ipsecProfile ? { ts: 'default', tsList: ['default'], ikev2Profile: '', pfs: null, builtin: true } : null;
+    }
+    // transform sets of an IPsec profile; none configured → the default transform set (command reference: "If you do not specify a transform-set, the default transform-set is used")
+    _tsNames(d, ip) {
+      const l = ip.tsList && ip.tsList.length ? ip.tsList : ip.ts ? [ip.ts] : [];
+      return l.length ? l : d.crypto.defaults.tset ? ['default'] : [];
+    }
+    effectiveProposals(devKey) { return this._policyProposals(this.devs[devKey]); }
+    ipsecProfileOf(devKey, name) { return this._ipsecProf(this.devs[devKey], name); }
+    tsetOf(devKey, name) { return this._tset(this.devs[devKey], name); }
     _saOf(st, devKey) { return st && st.sa && st.sa.half !== devKey ? st.sa : null; }
     drainLogs() { const q = this.logQueue; this.logQueue = []; return q; }
 
@@ -548,14 +566,15 @@
       if (!this.forward(A.key, ipB, { noTunnels: true }).ok) return fail('PEER_UNREACHABLE', `${A.hostname} has no route to the tunnel destination ${ipB}. Check the underlay (ip route) — IKE packets never reach the peer.`, 'a');
       if (!this.forward(B.key, ipA, { noTunnels: true }).ok) return fail('PEER_UNREACHABLE', `${B.hostname} cannot route back to ${ipA}. Check the underlay (ip route) on ${B.hostname}.`, 'b');
       const side = [[A, TA, ipB, 'a'], [B, TB, ipA, 'b']].map(([D, T, peerIp, s]) => {
-        const ips = D.crypto.ipsecProfiles[T.tunnel.protection];
+        const ips = this._ipsecProf(D, T.tunnel.protection);
         if (!ips) return { err: fail('CONFIG', `${D.hostname}: IPsec profile "${T.tunnel.protection}" referenced by ${T.name} does not exist.`, s) };
         // `set transform-set A B C` — list in priority order
-        const tsl = (ips.tsList && ips.tsList.length ? ips.tsList : [ips.ts]).filter(n => n && D.crypto.tsets[n]).map(n => ({ name: n, ...D.crypto.tsets[n] }));
+        const tsl = this._tsNames(D, ips).filter(n => this._tset(D, n)).map(n => ({ name: n, ...this._tset(D, n) }));
         if (!tsl.length) return { err: fail('CONFIG', `${D.hostname}: IPsec profile "${T.tunnel.protection}" has no valid transform-set.`, s) };
         const ts = tsl[0];
         const prof = D.crypto.profiles[ips.ikev2Profile];
-        if (!ips.ikev2Profile || !prof) return { err: fail('CONFIG', `${D.hostname}: IPsec profile "${T.tunnel.protection}" has no valid ikev2-profile.`, s) };
+        if (!ips.ikev2Profile || !prof) return { err: fail('CONFIG', ips.ikev2Profile ? `${D.hostname}: IKEv2 profile "${ips.ikev2Profile}" set in IPsec profile "${T.tunnel.protection}" does not exist.`
+          : `${D.hostname}: IPsec profile "${T.tunnel.protection}" has no IKEv2 profile. IOS has no default IKEv2 profile: create one and add "set ikev2-profile <name>"${T.tunnel.protection === 'default' ? ' under "crypto ipsec profile default"' : ''}.`, s) };
         return { D, T, ips, ts, tsl, prof, peerIp, s };
       });
       for (const x of side) if (x.err) return x.err;
@@ -747,7 +766,7 @@
        Outcome table from the IOS XE PQC configuration guide (Table 1).
        cfg: null | {kind:'inherit'} | {kind:'group', group} | {kind:'grouppqc', group, pqc}            */
     _pfsOf(devKey, ifName) {
-      const d = this.devs[devKey]; const t = d.ifaces[ifName]; const ip = t && d.crypto.ipsecProfiles[t.tunnel.protection];
+      const d = this.devs[devKey]; const t = d.ifaces[ifName]; const ip = t && this._ipsecProf(d, t.tunnel.protection);
       return ip ? ip.pfs : null;
     }
     _pfsOutcome(I, R, ike) {
@@ -765,7 +784,7 @@
     _rekeyChild(st, initDev) {
       const sa = st.sa; if (!sa) return;
       const me = st.pair.a.dev === initDev ? st.pair.a : st.pair.b, peer = me === st.pair.a ? st.pair.b : st.pair.a;
-      const tsOf = (dk, ifn) => { const d = this.devs[dk], t = d.ifaces[ifn], ip = t && d.crypto.ipsecProfiles[t.tunnel.protection]; return ip ? (ip.tsList && ip.tsList.length ? ip.tsList : [ip.ts]).map(n => d.crypto.tsets[n]).filter(Boolean) : []; };
+      const tsOf = (dk, ifn) => { const d = this.devs[dk], t = d.ifaces[ifn], ip = t && this._ipsecProf(d, t.tunnel.protection); return ip ? this._tsNames(d, ip).map(n => this._tset(d, n)).filter(Boolean) : []; };
       const tm = tsOf(me.dev, me.if), tp = tsOf(peer.dev, peer.if);
       const common = tm.find(x => tp.some(y => y.esp === x.esp && y.mode === x.mode));
       let r = this._pfsOutcome(this._pfsOf(me.dev, me.if), this._pfsOf(peer.dev, peer.if), sa.params);
@@ -1185,7 +1204,7 @@
         'R - IKE Auto Reconnect, U - IKE Dynamic Route Update', 'S - SIP VPN, E - Stronger IKE Encryption Enforced', 'Q - Quantum-safe Encryption', '');
       tuns.forEach((t, k) => {
         const st = this._pairOf(devKey, t.name); const sa = this._saOf(st, devKey); const child = sa && !sa.child.down;
-        const prof = (d.crypto.ipsecProfiles[t.tunnel.protection] || {}).ikev2Profile || '';
+        const prof = (this._ipsecProf(d, t.tunnel.protection) || {}).ikev2Profile || '';
         const age = sa ? Math.floor((this.now() - sa.establishedAt) / 1000) : 0;
         if (k) out.push('');
         out.push(`Interface: ${t.name}`);
@@ -1525,8 +1544,8 @@
         C('show crypto ipsec profile', d => {
           const blk = (n, p, ts) => [`IPSEC profile ${n}`, ...(p.ikev2Profile ? [`\tIKEv2 Profile: ${p.ikev2Profile}`] : []), '\tKilobyte Volume Rekey has been disabled.', '\tSecurity association lifetime:3600 seconds', '\tDualstack (Y/N): N', '',
             '\tResponder-Only (Y/N): N', `\tPFS (Y/N): ${p.pfs ? 'Y' : 'N'}`, ...(p.pfs ? [p.pfs.kind === 'inherit' ? '\t\tInherit (Y/N): Y' : `\t\tDH group:  ${p.pfs.group}`] : []), '\tMixed-mode : Disabled', '\tTransform sets={', ...ts.map(([tn, t]) => `\t\t${tn}:  { ${t.esp}  } ,`), '\t}'];
-          const out = Object.entries(d.crypto.ipsecProfiles).map(([n, p]) => blk(n, p, (p.tsList && p.tsList.length ? p.tsList : [p.ts]).filter(x => d.crypto.tsets[x]).map(x => [x, d.crypto.tsets[x]])));
-          if (d.crypto.defaults.ipsecProfile) out.push(blk('default', {}, [['default', { esp: 'esp-aes esp-sha-hmac' }]]));
+          const out = Object.entries(d.crypto.ipsecProfiles).map(([n, p]) => blk(n, p, lab._tsNames(d, p).filter(x => lab._tset(d, x)).map(x => [x, lab._tset(d, x)])));
+          if (d.crypto.defaults.ipsecProfile && !d.crypto.ipsecProfiles.default) out.push(blk('default', {}, [['default', { esp: 'esp-aes esp-sha-hmac' }]]));
           return out.flatMap((b, i) => i ? ['', ...b] : b);
         }),
         C('show crypto session', d => lab._showCryptoSession(d.key, false)),
@@ -1590,7 +1609,7 @@
           if (coll === 'ipsecProfiles' && Object.values(d.ifaces).some(i => i.tunnel && i.tunnel.protection === name)) return [err(`% Profile ${name} is in use by tunnel interface(s); remove "tunnel protection" first`)];
           delete store[name]; return [];
         }
-        if (!store[name]) store[name] = mk();
+        if (!store[name]) { store[name] = mk(); if (coll === 'ipsecProfiles' && name === 'default') Object.assign(store[name], { ts: 'default', tsList: ['default'] }); }
         d.mode = mode; d.ctx = { [ctxKey]: name };
         return lab._incompleteMsg(d, coll, store[name]);
       };
@@ -1681,7 +1700,7 @@
         C('tunnel protection ipsec profile WORD', sub((d, v, neg) => {
           const t = ifc(d).tunnel;
           if (neg) { t.protection = ''; return []; }
-          if (!cp(d).ipsecProfiles[v[4]]) return [err(`% IPSec profile ${v[4]} does not exist`)];
+          if (!lab._ipsecProf(d, v[4])) return [err(`% IPSec profile ${v[4]} does not exist`)];
           t.protection = v[4]; return [];
         }), { no: true, when: i => i.kind === 'tunnel', argHelp: { 4: 'IPSec profile name' } }),
         C('tunnel protection ipsec profile', sub((d) => { ifc(d).tunnel.protection = ''; return []; }), { no: true, noOnly: true, when: i => i.kind === 'tunnel' }),
@@ -1778,7 +1797,7 @@
         ...[1, 2, 3, 4].map(n => C(`set transform-set ${Array(n).fill('WORD').join(' ')}`, (d, v, neg) => {
           if (neg) { ips(d).ts = ''; ips(d).tsList = []; return []; }
           const names = v.slice(2);
-          const missing = names.find(x => !cp(d).tsets[x]);
+          const missing = names.find(x => !lab._tset(d, x));
           if (missing) return [err(`ERROR: transform set with tag "${missing}" does not exist.`)];
           ips(d).tsList = [...new Set(names)]; ips(d).ts = names[0]; return [];
         }, { no: true, argHelp: { 2: 'Proposal tag' } })),
