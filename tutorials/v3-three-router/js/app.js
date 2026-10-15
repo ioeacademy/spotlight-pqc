@@ -54,7 +54,7 @@
         const lines = all.split('\n'); const rest = lines.pop();
         pasteLines(k, lines, rest);
       });
-      line(k, `${def.hostname} con0 is now available — Cisco ${def.model}, IOS XE 26.2 (simulated)`, 'term-banner');
+      line(k, `${def.hostname} con0 is now available — Cisco ${def.model}, IOS XE ${(def.version || '26.02.01').replace(/^(\d+)\.0?(\d+).*$/, '$1.$2')} (simulated)`, 'term-banner');
       line(k, 'Educational simulator: output may differ from real routers. Not for validating configurations.', 'term-banner');
       line(k, `Type "?" for help. Tab completes, ↑/↓ recall history, Ctrl+Z leaves config mode.`, 'term-banner');
       line(k, '', '');

@@ -6,6 +6,7 @@ Browser-based labs for learning quantum-safe IPsec VPNs on Cisco IOS XE. No rout
 
 | Lab | Link |
 |---|---|
+| Quick lab: GRE tunnel over a WAN | [`tutorials/v6-gre/`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v6-gre/) |
 | Quick lab: classic IKEv2 VPN | [`tutorials/v5-quickstart/?track=classic`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v5-quickstart/?track=classic) |
 | Quick lab: post-quantum VPN (ML-KEM) | [`tutorials/v5-quickstart/?track=pqc`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v5-quickstart/?track=pqc) |
 | Quick lab: negotiation experiments | [`tutorials/v5-quickstart/?track=negotiate`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v5-quickstart/?track=negotiate) |
@@ -42,6 +43,7 @@ Then open http://localhost:8770/.
 ```bash
 node tutorials/v3-three-router/test/run-tests.js
 node tutorials/v5-quickstart/test/run-tests.js
+node tutorials/v6-gre/test/run-tests.js
 node tutorials/v3-three-router/test/negotiation-replay.js <negotiation-dataset-dir>
 node tutorials/v3-three-router/test/groundtruth-replay.js <dataset-dir>
 ```

@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <script>try { if (localStorage.getItem('spq-theme') === 'dark') document.documentElement.dataset.theme = 'dark'; } catch (e) { }</script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GRE Tunnel Lab</title>
+  <meta name="description" content="A short simulated IOS XE lab: build a GRE tunnel between two routers across a WAN.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="../v3-three-router/css/style.css?v=20261015t">
+</head>
+<body>
+  <header class="lab-nav">
+    <a class="nav-home" href="../../index.html">&larr; Spotlight-PQC</a>
+    <span class="nav-sep"></span>
+    <span class="badge">Quick lab</span>
+    <h1 class="nav-title">GRE tunnel over a WAN</h1>
+    <span class="nav-spacer"></span>
+    <a class="edu-badge" href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener" title="Educational simulator: output may differ from real routers. Not for validating configurations. Provided as is, without support.">🎓 Education only</a>
+    <span class="fs-group" role="group" aria-label="Text size">
+      <button class="fs-btn" data-fs="s" aria-pressed="true" title="Normal text">A</button><button class="fs-btn" data-fs="m" aria-pressed="false" title="Larger text">A</button><button class="fs-btn" data-fs="l" aria-pressed="false" title="Largest text">A</button>
+    </span>
+    <span class="nav-progress" id="nav-progress" aria-live="polite">0 / 0</span>
+    <button class="theme-btn" id="theme-btn" type="button" aria-label="Switch to dark mode" title="Switch to dark mode">☾</button>
+    <button class="btn ghost" id="btn-reset" title="Reset all routers and progress">Reset lab</button>
+  </header>
+
+  <main class="split">
+    <section class="tutorial" id="tutorial" aria-label="Tutorial steps">
+      <div class="tut-head">
+        <div class="tut-kicker">Short lab</div>
+        <div class="progress"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+      <ol class="steps" id="steps"></ol>
+    </section>
+
+    <div class="divider" id="divider" role="separator" aria-orientation="vertical" tabindex="0" title="Drag to resize"></div>
+
+    <section class="labpane" aria-label="Lab">
+      <div class="topo-wrap" id="topo-wrap">
+        <div class="topo-toolbar">
+          <span class="legend"><i class="sw gre"></i>GRE (not encrypted)</span>
+                    <span class="legend"><i class="sw fail"></i>Down / half-open</span>
+          <span class="topo-hint">Click a router for its console · click a tunnel to inspect it</span>
+        </div>
+        <svg id="topo" viewBox="60 -4 840 298" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Topology: R1, R2 and R3 in a row, GRE tunnel between R1 and R3"></svg>
+      </div>
+      <div class="hresizer" id="hresizer" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+      <div class="console">
+        <div class="tabs" role="tablist" id="tabs"></div>
+        <div class="terms" id="terms"></div>
+      </div>
+    </section>
+  </main>
+
+  <div class="modal-bg" id="modal-bg" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <div class="modal-head">
+        <h2 id="modal-title">Handshake inspector</h2>
+        <button class="btn ghost icon" id="modal-close" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="../v3-three-router/js/ios-pqc-engine.js?v=20261015u"></script>
+  <script src="js/gre-topology.js?v=20261015a"></script>
+  <script src="js/gre-steps.js?v=20261015a"></script>
+  <script src="../v3-three-router/js/app.js?v=20261015v"></script>
+  <script>
+    (function () {   // light by default; dark only when chosen
+      const b = document.getElementById('theme-btn'), r = document.documentElement;
+      const sync = () => { const d = r.dataset.theme === 'dark'; b.textContent = d ? '☀' : '☾'; b.title = b.ariaLabel = d ? 'Switch to light mode' : 'Switch to dark mode'; };
+      b.addEventListener('click', () => { const d = r.dataset.theme !== 'dark'; if (d) r.dataset.theme = 'dark'; else delete r.dataset.theme; try { localStorage.setItem('spq-theme', d ? 'dark' : 'light'); } catch (e) { } sync(); });
+      sync();
+    })();
+  </script>
+</body>
+</html>
