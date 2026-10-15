@@ -169,7 +169,7 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 .topo-toolbar { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: center; padding: 7px 14px; font-size: 12px; line-height: 16px; color: var(--muted); border-bottom: 1px solid var(--line-subtle); }
 .legend { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 .sw { width: 18px; height: 3px; border-radius: 2px; display: inline-block; }
-.sw.classic { background: var(--classic); } .sw.ppk { background: var(--ppk); } .sw.pqc { background: var(--pqc); height: 4px; }
+.sw.classic { background: var(--classic); } .sw.ppk { background: var(--ppk); } .sw.pqc { background: var(--pqc); height: 5px; }
 .sw.neg { background: repeating-linear-gradient(90deg, var(--neg) 0 4px, transparent 4px 7px); }
 .sw.fail { background: repeating-linear-gradient(90deg, var(--fail) 0 4px, transparent 4px 7px); }
 .topo-hint { margin-left: auto; }
@@ -192,7 +192,7 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 #topo .dot-up { fill: var(--success); } #topo .dot-down { fill: var(--fail); }
 #topo .tun { fill: none; stroke-width: 3; stroke-linecap: round; cursor: pointer; }
 #topo .tun-hit { fill: none; stroke: transparent; stroke-width: 18; cursor: pointer; }
-#topo .tun.classic { stroke: var(--classic); } #topo .tun.ppk { stroke: var(--ppk); } #topo .tun.pqc { stroke: var(--pqc); stroke-width: 4; }
+#topo .tun.classic { stroke: var(--classic); } #topo .tun.ppk { stroke: var(--ppk); } #topo .tun.pqc { stroke: var(--pqc); stroke-width: 5; }
 #topo .tun.neg, #topo .tun.half { stroke: var(--neg); stroke-dasharray: 7 6; animation: dash 1s linear infinite; }
 #topo .tun.fail { stroke: var(--fail); stroke-dasharray: 7 6; }
 @keyframes dash { to { stroke-dashoffset: -26; } }

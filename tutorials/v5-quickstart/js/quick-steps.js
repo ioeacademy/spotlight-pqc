@@ -163,7 +163,7 @@ ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value.
 <p>R3 is the mirror image: the peer is R1 (10.0.12.1) and the tunnel address is .2.</p>
 ${cfg('r3', shown(R3_CLASSIC))}
 <p>When both sides match, IKEv2 negotiates on its own: watch for <code>%CRYPTO-5-IKEV2_SESSION_STATUS ... UP</code> and the arc on the topology.</p>
-${callout('info', 'If the arc stays grey or red, click it: the handshake inspector tells you which setting doesn\'t match.')}
+${callout('info', 'If the arc stays dashed (grey while negotiating, red with a <b>DOWN</b> badge when it fails), click it: the handshake inspector tells you which setting doesn\'t match.')}
 <div class="goal">Goal: an IKEv2 SA between R1 and R3.</div>`,
       run: runOf('r3', R3_CLASSIC),
       validate: ctx => !!sa13(ctx.lab),
@@ -225,7 +225,7 @@ ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value.
       html: `
 <p>Same configuration on R3, with R1 as the peer:</p>
 ${cfg('r3', shown(R3_PQC))}
-<p>Watch the arc: it turns purple when the SA is up with ML-KEM. The first pings may time out (<code>..!!!</code>) while the larger handshake completes.</p>
+<p>Watch the arc: when the SA is up with ML-KEM it becomes a thicker solid blue line and its badge reads <code>UP · Tu0 · ML-KEM-768 + DH 20</code>. The first pings may time out (<code>..!!!</code>) while the larger handshake completes.</p>
 <div class="goal">Goal: the R1–R3 SA is up with ML-KEM-768.</div>`,
       run: runOf('r3', R3_PQC),
       validate: ctx => !!(sa13(ctx.lab) && sa13(ctx.lab).params.pqc === 'mlkem768'),
@@ -331,7 +331,7 @@ ${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 s
 <p>Now upgrade the other side the same way:</p>
 ${cfg('r3', ['crypto ikev2 proposal CLASSIC-PROPOSAL', ' pqc mlkem768 optional'])}
 ${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])}
-<p>Both peers offer ML-KEM, so it is used. Look for <code>PQC Key Exchange: ML-KEM-768</code> and <code>Quantum-safe Encryption using PQC</code>. The arc turns purple.</p>
+<p>Both peers offer ML-KEM, so it is used. Look for <code>PQC Key Exchange: ML-KEM-768</code> and <code>Quantum-safe Encryption using PQC</code>. The arc becomes the thicker blue ML-KEM line and its badge changes from <code>DH 20 + PSK</code> to <code>ML-KEM-768 + DH 20</code>.</p>
 ${callout('info', 'An SA never changes by itself: it keeps the algorithms it was negotiated with. That\'s why each step clears the SA (or you could shut and re-enable the tunnel interface).')}
 <div class="goal">Goal: the R1–R3 SA uses ML-KEM-768.</div>`,
       run: [...runOf('r3', addPqc('optional')), ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])],

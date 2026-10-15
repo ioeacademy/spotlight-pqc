@@ -129,7 +129,7 @@ ${EDU_NOTICE}
 <tr><td><span class="pill hub">Migration</span></td><td>Hub-and-spoke, rolled out one site at a time with zero outage</td></tr>
 </table>
 <h4>The lab</h4>
-<p>Three routers connected back to back on their <b>WAN interfaces</b>. The diagram above is live: click a router to open its console. Tunnels appear as arcs once you build them, coloured by how quantum-safe they are.</p>
+<p>Three routers connected back to back on their <b>WAN interfaces</b>. The diagram above is live: click a router to open its console. Tunnels appear as arcs once you build them. The line shows how quantum-safe the key exchange is (grey: classical, thin blue: PPK, thick blue: ML-KEM; see the legend) and the badge on the arc says its status, for example <code>UP · Tu0 · ML-KEM-768 + DH 20</code>.</p>
 <table class="t mono">
 <tr><th></th><th>Role</th><th>Interface</th><th>Address</th></tr>
 <tr><td>R1</td><td>Spoke-1</td><td>Tw0/0/0 (WAN)</td><td>10.0.12.1/24</td></tr>
@@ -198,7 +198,7 @@ ${callout('tip', 'In real IOS the indentation is cosmetic. Type <code>exit</code
 <p>R3 mirrors R1, with the peer address and the tunnel IP swapped:</p>
 ${cfg('r3', R3_CLASSIC.slice(1, -1).filter(l => !/^\s*exit$/.test(l)))}
 <p>Once both ends agree, IKEv2 negotiates on its own. Watch the console for <code>%CRYPTO-5-IKEV2_SESSION_STATUS ... UP</code>, and watch the arc that appears over the topology.</p>
-${callout('info', 'The pre-shared key, the transform set and the proposal algorithms must match on both sides. If the tunnel stays grey, click the arc to open the <b>handshake inspector</b>: it tells you exactly which check failed.')}
+${callout('info', 'The pre-shared key, the transform set and the proposal algorithms must match on both sides. If the arc stays dashed (grey while negotiating, red with a <b>DOWN</b> badge when it fails), click it to open the <b>handshake inspector</b>: it tells you exactly which check failed.')}
 <div class="goal">Goal: an IKEv2 SA between R1 and R3.</div>`,
     run: runOf('r3', R3_CLASSIC),
     validate: ctx => !!ctx.lab.saBetween('r1', 'r3'),
