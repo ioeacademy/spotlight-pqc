@@ -53,7 +53,7 @@
   }
   // learner typed `pqc …` into a proposal that no policy uses (typical after building the VPN on IKEv2 smart defaults)
   const pqcUnused = { when: (d, c, r, lab) => /^pqc /.test(c) && lab.dev(d).mode === 'proposal' && !lab.effectiveProposals(d).some(p => p.name === lab.dev(d).ctx.proposal),
-    text: 'This proposal is not used yet, so the tunnel stays classical. Cisco: <i>"attach it to a policy so that the proposal is picked for negotiation"</i>. If you built the VPN on <b>smart defaults</b> (no IKEv2 proposal or policy of your own), the router is still negotiating with the built-in <code>default</code> policy and proposal. Do what the Cisco PQC guide shows: complete this proposal (<code>encryption</code>, <code>integrity</code>, <code>group</code> next to <code>pqc</code>) and attach it to a policy (<code>crypto ikev2 policy …</code> → <code>proposal …</code>), on both routers. Adding <code>pqc</code> to the <code>default</code> proposal also works in this simulator, but Cisco\'s PQC guide does not show it.' };
+    text: 'This proposal is not used yet, so the tunnel stays classical. Cisco: <i>"attach it to a policy so that the proposal is picked for negotiation"</i>. A proposal also needs <code>encryption</code>, <code>integrity</code> and <code>group</code> next to <code>pqc</code>. If your VPN runs on the smart defaults, follow the step\'s commands: they create the complete proposal and the policy.' };
   const proposalsOf = (lab, dk) => Object.values(lab.dev(dk).crypto.policies).flatMap(p => p.proposals).map(n => lab.dev(dk).crypto.proposals[n]).filter(Boolean);
 
   /* ---------- shared config blocks ---------- */
@@ -306,6 +306,24 @@ ${callout('tip', 'Instead of clearing the SA, the guide suggests shutting the tu
     run: [...runOf('r1', ['configure terminal', 'crypto ikev2 fragmentation mtu 1400', 'crypto ikev2 proposal CLASSICAL-PROPOSAL', 'pqc mlkem768 optional', 'end']),
       ...runOf('r3', ['configure terminal', 'crypto ikev2 fragmentation mtu 1400', 'crypto ikev2 proposal CLASSICAL-PROPOSAL', 'pqc mlkem768 optional', 'end']),
       ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])],
+    // routers built on IKEv2 smart defaults have no proposal to extend: create a complete one and its policy
+    alt: {
+      when: lab => lab.usesSmartDefaults('r1') || lab.usesSmartDefaults('r3'),
+      html: `
+<p>Your routers run on the IKEv2 <b>smart defaults</b>: no proposal or policy of your own, so they negotiate with the built-in <code>default</code> proposal (here AES-CBC-256, SHA512, DH group 19). ML-KEM is configured in a <b>proposal attached to a policy</b>, as in the ${guide('IOS XE PQC configuration guide')}. Create one with the same classical algorithms plus ML-KEM, attach it to a policy, and enable IKEv2 fragmentation:</p>
+${cfg('r1', ['crypto ikev2 fragmentation mtu 1400', '!', 'crypto ikev2 proposal CLASSICAL-PROPOSAL', ' encryption aes-cbc-256', ' integrity sha512', ' group 19', ' pqc mlkem768 optional', '!', 'crypto ikev2 policy CLASSICAL-POLICY', ' proposal CLASSICAL-PROPOSAL'])}
+${cfg('r3', ['crypto ikev2 fragmentation mtu 1400', '!', 'crypto ikev2 proposal CLASSICAL-PROPOSAL', ' encryption aes-cbc-256', ' integrity sha512', ' group 19', ' pqc mlkem768 optional', '!', 'crypto ikev2 policy CLASSICAL-POLICY', ' proposal CLASSICAL-PROPOSAL'])}
+<table class="t">
+<tr><td><code>encryption</code> / <code>integrity</code> / <code>group 19</code></td><td>A proposal must be complete: the classical algorithms stay, and DH group 19 is the one the default proposal was already using. ML-KEM is added <b>on top</b> of it (hybrid).</td></tr>
+<tr><td><code>pqc mlkem768 optional</code></td><td>Proposes ML-KEM-768. <b>optional</b> allows fallback to classical if the peer does not support it; without it ML-KEM is enforced.</td></tr>
+<tr><td><code>crypto ikev2 policy</code> + <code>proposal</code></td><td>A proposal is only used when a policy points to it. Once this policy exists, the default policy is no longer used.</td></tr>
+<tr><td><code>fragmentation mtu 1400</code></td><td>ML-KEM keys are large (1,184 bytes). IKEv2 fragmentation (RFC 7383) avoids IP fragmentation.</td></tr>
+</table>
+${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])}
+${callout('info', 'Look for <code>PQC Key Exchange: ML-KEM-768</code> and <code>Quantum-safe Encryption using PQC: ML-KEM-768</code>. The first pings may time out while the larger handshake completes.')}
+<div class="goal">Goal: the R1–R3 SA uses <code>PQC Key Exchange: ML-KEM-768</code>.</div>`,
+      run: [...runOf('r1', ['configure terminal', 'crypto ikev2 fragmentation mtu 1400', 'crypto ikev2 proposal CLASSICAL-PROPOSAL', 'encryption aes-cbc-256', 'integrity sha512', 'group 19', 'pqc mlkem768 optional', 'exit', 'crypto ikev2 policy CLASSICAL-POLICY', 'proposal CLASSICAL-PROPOSAL', 'end']), ...runOf('r3', ['configure terminal', 'crypto ikev2 fragmentation mtu 1400', 'crypto ikev2 proposal CLASSICAL-PROPOSAL', 'encryption aes-cbc-256', 'integrity sha512', 'group 19', 'pqc mlkem768 optional', 'exit', 'crypto ikev2 policy CLASSICAL-POLICY', 'proposal CLASSICAL-PROPOSAL', 'end']), ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])],
+    },
     validate: ctx => { const sa = ctx.lab.saBetween('r1', 'r3'); return !!(sa && sa.params.pqc === 'mlkem768'); },
     hints: [
       pqcUnused,

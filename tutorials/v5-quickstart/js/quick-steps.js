@@ -39,7 +39,7 @@
   const ran = (ctx, dk, re) => ctx.lab.ranSince(ctx.since, dk, re);
   // learner typed `pqc …` into a proposal that no policy uses (typical after building the VPN on IKEv2 smart defaults)
   const pqcUnused = { when: (d, c, r, lab) => /^pqc /.test(c) && lab.dev(d).mode === 'proposal' && !lab.effectiveProposals(d).some(p => p.name === lab.dev(d).ctx.proposal),
-    text: 'This proposal is not used yet, so the tunnel stays classical. Cisco: <i>"attach it to a policy so that the proposal is picked for negotiation"</i>. If you built the VPN on <b>smart defaults</b> (no IKEv2 proposal or policy of your own), the router is still negotiating with the built-in <code>default</code> policy and proposal. Do what the Cisco PQC guide shows: complete this proposal (<code>encryption</code>, <code>integrity</code>, <code>group</code> next to <code>pqc</code>) and attach it to a policy (<code>crypto ikev2 policy …</code> → <code>proposal …</code>), on both routers. Adding <code>pqc</code> to the <code>default</code> proposal also works in this simulator, but Cisco\'s PQC guide does not show it.' };
+    text: 'This proposal is not used yet, so the tunnel stays classical. Cisco: <i>"attach it to a policy so that the proposal is picked for negotiation"</i>. A proposal also needs <code>encryption</code>, <code>integrity</code> and <code>group</code> next to <code>pqc</code>. If your VPN runs on the smart defaults, follow the step\'s commands: they create the complete proposal and the policy.' };
   const proposalsOf = (lab, dk) => Object.values(lab.dev(dk).crypto.policies).flatMap(p => p.proposals).map(n => lab.dev(dk).crypto.proposals[n]).filter(Boolean);
   // complete chain on `dk`: tunnel → ipsec profile → transform set + ikev2 profile → keyring with the peer's PSK
   function chainTo(lab, dk, peerIp) {
@@ -326,6 +326,21 @@ ${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 s
 <p>The tunnel comes back <b>still classical</b>. R1 offers ML-KEM, R3 doesn't yet, and <code>optional</code> lets them fall back to plain DH. That's how you upgrade one site at a time without an outage.</p>
 <div class="goal">Goal: R1 offers ML-KEM as optional, and the tunnel is still up.</div>`,
       run: [...runOf('r1', [...addPqc('optional'), 'clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed | include PQC|DH Grp'])],
+      alt: {
+        when: lab => lab.usesSmartDefaults('r1'),
+        html: `
+<p>R1 runs on the IKEv2 <b>smart defaults</b>: it has no proposal of its own to extend. ML-KEM is configured in a <b>proposal attached to a policy</b>, so create one with the same classical algorithms plus ML-KEM <b>optional</b>:</p>
+${cfg('r1', ['crypto ikev2 proposal CLASSIC-PROPOSAL', ' encryption aes-cbc-256', ' integrity sha512', ' group 19', ' pqc mlkem768 optional', '!', 'crypto ikev2 policy CLASSIC-POLICY', ' proposal CLASSIC-PROPOSAL'])}
+<table class="t">
+<tr><td><code>encryption</code> / <code>integrity</code> / <code>group 19</code></td><td>A proposal must be complete. These are the algorithms the default proposal was already negotiating, so nothing classical changes.</td></tr>
+<tr><td><code>pqc mlkem768 optional</code></td><td>Offers ML-KEM on top of DH (hybrid), still accepting peers without it.</td></tr>
+<tr><td><code>crypto ikev2 policy</code> + <code>proposal</code></td><td>A proposal is only used when a policy points to it. From now on this router no longer uses the default policy.</td></tr>
+</table>
+${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed | include PQC|DH Grp'])}
+<p>The tunnel comes back <b>still classical</b>: R1 offers ML-KEM, R3 (still on the defaults) doesn't, and <code>optional</code> lets them agree on plain DH group 19. That's how you upgrade one site at a time without an outage.</p>
+<div class="goal">Goal: R1 offers ML-KEM as optional, and the tunnel is still up.</div>`,
+        run: [...runOf('r1', [...['configure terminal', 'crypto ikev2 proposal CLASSIC-PROPOSAL', 'encryption aes-cbc-256', 'integrity sha512', 'group 19', 'pqc mlkem768 optional', 'exit', 'crypto ikev2 policy CLASSIC-POLICY', 'proposal CLASSIC-PROPOSAL', 'end'], 'clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed | include PQC|DH Grp'])],
+      },
       validate: ctx => proposalsOf(ctx.lab, 'r1').some(p => p.pqc && p.pqc.mode === 'optional') && !!sa13(ctx.lab),
       hints: [pqcUnused, { when: (d, c) => d === 'r1' && /^pqc mlkem768$/.test(c), text: 'Without <code>optional</code>, R1 would <b>require</b> ML-KEM and reject R3, which doesn\'t support it yet. Use <code>pqc mlkem768 optional</code> during the migration.' }],
     },
@@ -339,6 +354,16 @@ ${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 s
 ${callout('info', 'An SA never changes by itself: it keeps the algorithms it was negotiated with. That\'s why each step clears the SA (or you could shut and re-enable the tunnel interface).')}
 <div class="goal">Goal: the R1–R3 SA uses ML-KEM-768.</div>`,
       run: [...runOf('r3', addPqc('optional')), ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])],
+      alt: {
+        when: lab => lab.usesSmartDefaults('r3'),
+        html: `
+<p>Now upgrade R3 the same way. It also runs on the smart defaults, so it gets the same complete proposal and policy:</p>
+${cfg('r3', ['crypto ikev2 proposal CLASSIC-PROPOSAL', ' encryption aes-cbc-256', ' integrity sha512', ' group 19', ' pqc mlkem768 optional', '!', 'crypto ikev2 policy CLASSIC-POLICY', ' proposal CLASSIC-PROPOSAL'])}
+${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])}
+<p>Both peers offer ML-KEM, so it is used: look for <code>PQC Key Exchange: ML-KEM-768</code>. The arc becomes the thicker blue ML-KEM line and its badge changes to <code>ML-KEM-768 + DH 19</code>.</p>
+<div class="goal">Goal: the R1–R3 SA uses ML-KEM-768.</div>`,
+        run: [...runOf('r3', ['configure terminal', 'crypto ikev2 proposal CLASSIC-PROPOSAL', 'encryption aes-cbc-256', 'integrity sha512', 'group 19', 'pqc mlkem768 optional', 'exit', 'crypto ikev2 policy CLASSIC-POLICY', 'proposal CLASSIC-PROPOSAL', 'end']), ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed'])],
+      },
       validate: ctx => !!(sa13(ctx.lab) && sa13(ctx.lab).params.pqc),
       hints: [pqcUnused, { when: (d, c, r, lab) => /^show crypto ikev2 sa/.test(c) && ['r1', 'r3'].every(k => proposalsOf(lab, k).some(p => p.pqc)) && sa13(lab) && !sa13(lab).params.pqc, text: 'Both sides offer ML-KEM, but this SA was negotiated before. Run <code>clear crypto ikev2 sa</code>.' }],
     },

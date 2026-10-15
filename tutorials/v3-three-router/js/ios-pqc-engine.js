@@ -376,6 +376,8 @@
       return l.length ? l : d.crypto.defaults.tset ? ['default'] : [];
     }
     effectiveProposals(devKey) { return this._policyProposals(this.devs[devKey]); }
+    // true when the router negotiates with the built-in default policy/proposal (no complete IKEv2 policy of its own)
+    usesSmartDefaults(devKey) { const p = this.effectiveProposals(devKey); return p.length > 0 && p.every(x => x.name === 'default'); }
     ipsecProfileOf(devKey, name) { return this._ipsecProf(this.devs[devKey], name); }
     tsetOf(devKey, name) { return this._tset(this.devs[devKey], name); }
     _saOf(st, devKey) { return st && st.sa && st.sa.half !== devKey ? st.sa : null; }
@@ -1624,8 +1626,8 @@
         }
         if (!store[name]) {
           store[name] = mk();
-          // `crypto ikev2 proposal|policy|ipsec profile default` edits the built-in construct. Documented in general
-          // ("You can modify the default configuration"); `pqc` under the default proposal is NOT shown in Cisco's PQC guide (inferred)
+          // `crypto ikev2 proposal|policy|ipsec profile default` edits the built-in construct
+          // (Cisco: "You can modify the default configuration"). ML-KEM is not offered there: see the `pqc` commands.
           if (name === 'default' && coll === 'ipsecProfiles') Object.assign(store[name], { ts: 'default', tsList: ['default'] });
           if (name === 'default' && coll === 'proposals') Object.assign(store[name], JSON.parse(JSON.stringify(DEFAULT_PROPOSAL)));
           if (name === 'default' && coll === 'policies') store[name].proposals = ['default'];
@@ -1742,6 +1744,8 @@
         // guide: `pqc mlkem768 mlkem1024 optional` — 1..3 ML-KEM algorithms, `optional` allows classical fallback
         ...[1, 2, 3].flatMap(n => [false, true].map(opt => C(`pqc ${Array(n).fill('(mlkem512|mlkem768|mlkem1024)').join(' ')}${opt ? ' optional' : ''}`, (d, v, neg) => {
           const algs = [...new Set(v.slice(1, 1 + n))];
+          // simulator choice: Cisco's PQC guide only configures ML-KEM in a named proposal attached to a policy
+          if (!neg && d.ctx.proposal === 'default') return [err('% Simulator: ML-KEM is not added to the default proposal. Create a named proposal (encryption, integrity, group, pqc) and attach it to an IKEv2 policy.')];
           prop(d).pqc = neg ? null : { algs, mode: opt ? 'optional' : 'required' }; return [];
         }, { no: true }))),
         C('pqc', (d) => { prop(d).pqc = null; return []; }, { no: true, noOnly: true }),

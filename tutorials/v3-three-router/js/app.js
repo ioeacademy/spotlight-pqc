@@ -160,7 +160,7 @@
           <span class="step-num"><span>${i + 1}</span></span><span class="step-title">${esc(s.title)}</span><span class="tag ${s.part}">${PART[s.part]}</span>
         </button>
         <div class="step-body" id="step-body-${i}">
-          ${s.html}
+          ${s.alt ? `<div class="variant v-main">${s.html}</div><div class="variant v-alt" hidden>${s.alt.html}</div>` : s.html}
           <div class="step-hint" id="hint-${i}" role="status"></div>
           <div class="step-actions">
             ${info ? `<button class="btn" data-continue="${i}">${i === STEPS.length - 1 ? 'Finish' : 'Start the lab'}</button>` : `<button class="btn success" data-showme="${i}">▶ Show Me</button>`}
@@ -181,8 +181,21 @@
     });
   }
   // reading order inside a step: goal first, the "what each line does" tables folded away
+  // which variant of a step applies right now (e.g. the smart-defaults version of the ML-KEM steps)
+  const altOn = s => { try { return !!(s.alt && s.alt.when(lab)); } catch (e) { return false; } };
+  const runOf = s => altOn(s) ? s.alt.run : s.run;
+  function syncVariants() {
+    STEPS.forEach((s, i) => {
+      if (!s.alt) return; const li = $('#step-' + i); if (!li) return;
+      const on = altOn(s); li.querySelector('.v-main').hidden = on; li.querySelector('.v-alt').hidden = !on;
+    });
+  }
   function structureStep(li) {
-    const body = li.querySelector('.step-body'); if (!body) return;
+    const bodies = li.querySelectorAll('.variant'); if (bodies.length) { bodies.forEach(structureBody); return; }
+    structureBody(li.querySelector('.step-body'));
+  }
+  function structureBody(body) {
+    if (!body) return;
     const goal = body.querySelector('.goal');
     if (goal) {
       goal.innerHTML = goal.innerHTML.replace(/^\s*Goal:\s*/, '');
@@ -250,7 +263,7 @@
     const s = STEPS[i]; busy = true; usedShowMe.add(i);
     const btn = document.querySelector(`[data-showme="${i}"]`); btn.disabled = true; btn.textContent = '⏳ Typing…';
     let prev = null;
-    for (const [k, cmd] of s.run) {
+    for (const [k, cmd] of runOf(s)) {
       const d = lab.dev(k);
       if (k !== prev) {
         if (d.mode === 'exec' && cmd !== 'enable') await typeCmd(k, 'enable');
@@ -457,7 +470,7 @@
   function drawPorts() {
     gLinks.querySelectorAll('circle[data-port]').forEach(c => { const [d, p] = c.dataset.port.split(':'); c.setAttribute('class', lab.portUp(d, p) ? 'dot-up' : 'dot-down'); });
   }
-  function refresh() { drawTunnels(); drawPorts(); }
+  function refresh() { drawTunnels(); drawPorts(); syncVariants(); }
 
   // packet animation along the path a ping took
   async function animatePath(meta) {
