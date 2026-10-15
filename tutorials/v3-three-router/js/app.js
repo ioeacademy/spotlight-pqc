@@ -50,12 +50,10 @@
       setPrompt(k);
     }
     const tools = document.createElement('div'); tools.className = 'term-tools';
-    tools.innerHTML = '<button type="button" class="term-tool" id="tool-logs" aria-pressed="true" title="Show or hide syslog and debug lines">Logs</button><button type="button" class="term-tool" id="tool-clear" title="Clear this console">Clear</button>';
+    // syslog and debug messages always reach the console, as on a router's con0 (no filter)
+    tools.innerHTML = '<button type="button" class="term-tool" id="tool-clear" title="Clear this console">Clear</button>';
     tabs.appendChild(tools);
-    let logsOn = true; try { logsOn = localStorage.getItem('spq-logs') !== 'off'; } catch (e) { }
-    const setLogs = on => { logsOn = on; terms.classList.toggle('hide-logs', !on); tools.querySelector('#tool-logs').setAttribute('aria-pressed', on); try { localStorage.setItem('spq-logs', on ? 'on' : 'off'); } catch (e) { } };
-    setLogs(logsOn);
-    tools.querySelector('#tool-logs').addEventListener('click', () => { setLogs(!logsOn); scroll(activeDev); });
+    try { localStorage.removeItem('spq-logs'); } catch (e) { }
     tools.querySelector('#tool-clear').addEventListener('click', () => { T[activeDev].lines.textContent = ''; T[activeDev].inp.focus({ preventScroll: true }); });
     selectDev('r1', false);
   }
