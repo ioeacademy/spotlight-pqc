@@ -22,6 +22,28 @@
   const callout = (kind, html) => `<div class="callout ${kind}">${html}</div>`;
   const EDU_NOTICE = callout('edu', `<b>🎓 For learning only.</b> This is a simulator to practise IOS XE commands and get familiar with post-quantum VPN concepts and configuration steps. It is not a real router: output can differ from real platforms and software releases, so <b>don't use it to validate configurations</b> for a real network. It is provided <b>as is</b>, with no warranty and no support. Always check the official Cisco documentation and test on real equipment before deploying. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
   const runOf = (dev, lines) => lines.map(c => [dev, c]);
+  /* the classic VPN configuration, one sub-block per construct (each with its own ▶) */
+  const GROUPS = [
+    [/^crypto ikev2 (proposal|policy|fragmentation)\b/, 'IKEv2 proposal and policy', 'phase 1 algorithms'],
+    [/^crypto ikev2 (keyring|profile)\b/, 'Keyring and IKEv2 profile', 'who the peer is and how it authenticates'],
+    [/^crypto ipsec transform-set\b/, 'IPsec transform set', 'phase 2 algorithms'],
+    [/^crypto ipsec profile\b/, 'IPsec profile', 'ties phase 2 to the IKEv2 profile'],
+    [/^interface\b/, 'Tunnel interface', 'the VTI: traffic routed here is encrypted'],
+    [/^ip route\b/, 'Routing', ''],
+  ];
+  function blocks(dev, lines) {
+    const out = []; let cur = null;
+    for (const l of lines) {
+      if (/^\s*!?\s*$/.test(l) || /^\s*exit$/.test(l) || /^(configure terminal|end)$/.test(l)) continue;
+      if (!/^\s/.test(l)) {
+        const g = GROUPS.findIndex(([re]) => re.test(l));
+        if (!cur || cur.g !== g) { cur = { g, lines: [] }; out.push(cur); }
+      }
+      if (cur) cur.lines.push(l);
+    }
+    return `<div class="cfg-blocks">${out.map((b, i) => { const G = GROUPS[b.g] || [null, 'Configuration', '']; return `<div class="cfg-block"><div class="cfg-block-title"><span class="cfg-block-num">${i + 1}</span>${G[1]}${G[2] ? `<span class="cfg-block-sub">${G[2]}</span>` : ''}</div>${cfg(dev, b.lines)}</div>`; }).join('')}</div>`;
+  }
+
 
   /* ---------- validation helpers ---------- */
   // Is the IPsec chain on `dk` towards `peerIp` complete? (tunnel → ipsec profile → ts + ikev2 profile → keyring)
@@ -176,7 +198,7 @@ ${callout('tip', 'The first ping may show <code>.!!!!</code>. The first packet i
     id: 'r1-classic', title: 'Classical IKEv2 + VTI on R1', part: 'base', devices: ['r1'],
     html: `
 <p>Start with the classical baseline. This is the IKEv2 configuration on R1, exactly as it appears in the blog. It is a route-based VPN on a <b>Virtual Tunnel Interface</b>:</p>
-${cfg('r1', R1_CLASSIC.slice(1, -1).filter(l => !/^\s*exit$/.test(l)))}
+${blocks('r1', R1_CLASSIC)}
 <table class="t">
 <tr><td><code>group 20</code></td><td>ECDH on NIST P-384. The containers used X25519; both are classical elliptic-curve DH, and Shor's algorithm breaks both.</td></tr>
 <tr><td><code>pre-shared-key</code></td><td>Used <b>only for authentication</b>: it proves R1 is really talking to R3. The encryption keys come from the DH exchange.</td></tr>
@@ -201,7 +223,7 @@ ${callout('tip', 'In real IOS the indentation is cosmetic. Type <code>exit</code
     id: 'r3-classic', title: 'Mirror the configuration on R3', part: 'base', devices: ['r3'],
     html: `
 <p>R3 mirrors R1, with the peer address and the tunnel IP swapped:</p>
-${cfg('r3', R3_CLASSIC.slice(1, -1).filter(l => !/^\s*exit$/.test(l)))}
+${blocks('r3', R3_CLASSIC)}
 <p>Once both ends agree, IKEv2 negotiates on its own. Watch the console for <code>%CRYPTO-5-IKEV2_SESSION_STATUS ... UP</code>, and watch the arc that appears over the topology.</p>
 ${callout('info', 'The pre-shared key, the transform set and the proposal algorithms must match on both sides. If the arc stays dashed (grey while negotiating, red with a <b>DOWN</b> badge when it fails), click it to open the <b>handshake inspector</b>: it tells you exactly which check failed.')}
 <div class="goal">Goal: an IKEv2 SA between R1 and R3.</div>`,
@@ -262,7 +284,7 @@ ${cfg('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 s
       ...runOf('r1', ['clear crypto ikev2 sa', 'ping 192.168.100.2', 'show crypto ikev2 sa detailed | include Quantum', 'show crypto ikev2 stats | include Quantum'])],
     validate: ctx => { const sa = ctx.lab.saBetween('r1', 'r3'); return !!(sa && sa.params.ppk); },
     hints: [
-      { when: (d, c, r, lab) => /^clear crypto ikev2 sa/.test(c) && (!lab.dev('r1').crypto.profiles['CLASSICAL-PROFILE'] || !lab.dev('r3').crypto.profiles['CLASSICAL-PROFILE'] || !lab.dev('r1').crypto.profiles['CLASSICAL-PROFILE'].keyringPpk || !lab.dev('r3').crypto.profiles['CLASSICAL-PROFILE'].keyringPpk), text: 'The PPK is only used when the IKEv2 profile points at it: <code>keyring ppk CLASSICAL-KEYRING</code> on <b>both</b> routers. With <code>required</code> on one side only, the tunnel will not come back.' },
+      { when: (d, c, r, lab) => /^clear crypto ikev2 sa/.test(c) && ['r1', 'r3'].some(k => { const n = lab.vpnNames(k).profile; return !n || !lab.dev(k).crypto.profiles[n].keyringPpk; }), text: 'The PPK is only used when the IKEv2 profile points at it: <code>keyring ppk CLASSICAL-KEYRING</code> on <b>both</b> routers. With <code>required</code> on one side only, the tunnel will not come back.' },
       { when: (d, c) => /^ppk manual id (?!PPK-R1R3)/.test(c), text: 'Use the same PPK identity on both peers: <code>PPK-R1R3</code>.' },
     ],
   },
@@ -375,7 +397,7 @@ ${callout('info', 'Order matters: IOS won\'t delete an IPsec profile that a tunn
     id: 'hub', title: 'Upgrade the hub first (R2)', part: 'hub', devices: ['r2'],
     html: `
 <p>The migration starts at the hub. Its proposal includes ML-KEM as <b>optional</b>, so it can talk to both upgraded and legacy spokes. One keyring holds both peers, one IKEv2 profile accepts both identities, and each spoke gets its own tunnel interface:</p>
-${cfg('r2', [
+${blocks('r2', [
   'crypto ikev2 fragmentation mtu 1400', '!',
   'crypto ikev2 proposal HUB-PROPOSAL', ' pqc mlkem768 optional', ' encryption aes-cbc-256', ' integrity sha512', ' group 20', '!',
   'crypto ikev2 policy HUB-POLICY', ' proposal HUB-PROPOSAL', '!',
@@ -409,7 +431,7 @@ ${callout('info', 'The blog shows only the proposals for this phase. The tunnel 
     id: 'spoke1', title: 'Spoke R1 — already upgraded', part: 'hub', devices: ['r1'],
     html: `
 <p>R1 is an upgraded spoke, so its proposal offers ML-KEM too. It reuses the <code>CLASSICAL-TS</code> transform set and the fragmentation setting that are still configured.</p>
-${cfg('r1', [
+${blocks('r1', [
   'crypto ikev2 proposal PQC-PROPOSAL', ' pqc mlkem768 optional', ' encryption aes-cbc-256', ' integrity sha512', ' group 20', '!',
   'crypto ikev2 policy PQC-POLICY', ' proposal PQC-PROPOSAL', '!',
   'crypto ikev2 keyring SPOKE-KEYRING', ' peer R2', '  address 10.0.12.2', `  pre-shared-key ${PSK}`, '!',
@@ -436,7 +458,7 @@ ${cfg('r1', ['ping 192.168.12.2', 'show crypto ikev2 sa'])}
     id: 'spoke2', title: 'Spoke R3 — still legacy', part: 'hub', devices: ['r3', 'r2'],
     html: `
 <p>R3 has not been upgraded yet. Its proposal has <b>no</b> <code>pqc</code> line:</p>
-${cfg('r3', [
+${blocks('r3', [
   'crypto ikev2 proposal SPOKE-PROPOSAL', ' encryption aes-cbc-256', ' integrity sha512', ' group 20', '!',
   'crypto ikev2 policy SPOKE-POLICY', ' proposal SPOKE-PROPOSAL', '!',
   'crypto ikev2 keyring SPOKE-KEYRING', ' peer R2', '  address 10.0.23.1', `  pre-shared-key ${PSK}`, '!',
@@ -520,7 +542,9 @@ ${callout('warn', '<b>The missing half: authentication.</b> Every tunnel here st
     full: { title: 'Post-Quantum Key Exchange on Cisco Routers', badge: 'v3 · 3 routers', kicker: 'IPsec Series · Part 9 — hands-on', steps: STEPS.map(x => x.id) },
     classic: { title: 'Classic Site-to-Site VPN (IKEv2 + VTI)', badge: 'Classic VPN', kicker: 'IKEv2 + VTI — the classical baseline', finish: 'Lab complete — classic IKEv2 VPN built and proven', steps: ['intro-classic', 'underlay', 'r1-classic', 'r3-classic', 'baseline', 'wrap-classic'] },
   };
-  const api = { STEPS, TRACKS, BY_ID, BLOG_URL, GUIDE_URL, helpers: { chainTo, hasPolicy, proposalsOf } };
+  // tutorial object names and their role, so commands can follow the learner's own names (app.js adaptCmds)
+  const NAME_ROLES = { 'CLASSICAL-PROPOSAL': 'proposal', 'CLASSICAL-POLICY': 'policy', 'CLASSICAL-KEYRING': 'keyring', 'CLASSICAL-PROFILE': 'profile', 'CLASSICAL-TS': 'tset', 'CLASSICAL-IPSEC': 'ipsec' };
+  const api = { STEPS, TRACKS, BY_ID, BLOG_URL, GUIDE_URL, NAME_ROLES, helpers: { chainTo, hasPolicy, proposalsOf } };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TUTORIAL = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

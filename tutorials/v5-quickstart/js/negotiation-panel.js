@@ -78,7 +78,12 @@
 
     /* ---------- config diff → IOS commands ---------- */
     function commands() {
-      return ['r1', 'r3'].map(dev => ({ dev, lines: N.commands(dev, applied[dev], cfg[dev]) })).filter(c => c.lines.length);
+      return ['r1', 'r3'].map(dev => ({ dev, lines: N.commands(dev, applied[dev], cfg[dev], own(dev)) })).filter(c => c.lines.length);
+    }
+    // the learner's object names on this router (falls back to the lab's names)
+    function own(dev) {
+      const v = lab.vpnNames(dev);
+      return { prop: v.proposal || N.NAMES.prop, keys: v.keyring || N.NAMES.keys, prof: v.profile || N.NAMES.prof, ts: v.tset || N.NAMES.ts, peer: (v.dest && v.peers[v.dest]) || null };
     }
     const valid = () => ['r1', 'r3'].every(d => cfg[d].enc.length && cfg[d].integ.length && cfg[d].group.length && cfg[d].psk.trim() && /^\d+\.\d+\.\d+\.\d+$/.test(cfg[d].peerId));
     const same = (sc, c, ini) => ['r1', 'r3'].every(d => JSON.stringify(N.apply(sc, d)) === JSON.stringify(c[d])) && (sc.initiator || 'r1') === ini;

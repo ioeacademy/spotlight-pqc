@@ -21,6 +21,28 @@
   const out = lines => `<pre class="out">${esc(lines.join('\n'))}</pre>`;
   const callout = (kind, html) => `<div class="callout ${kind}">${html}</div>`;
   const runOf = (dev, lines) => lines.map(c => [dev, c]);
+  /* the classic VPN configuration, one sub-block per construct (each with its own ▶) */
+  const GROUPS = [
+    [/^crypto ikev2 (proposal|policy|fragmentation)\b/, 'IKEv2 proposal and policy', 'phase 1 algorithms'],
+    [/^crypto ikev2 (keyring|profile)\b/, 'Keyring and IKEv2 profile', 'who the peer is and how it authenticates'],
+    [/^crypto ipsec transform-set\b/, 'IPsec transform set', 'phase 2 algorithms'],
+    [/^crypto ipsec profile\b/, 'IPsec profile', 'ties phase 2 to the IKEv2 profile'],
+    [/^interface\b/, 'Tunnel interface', 'the VTI: traffic routed here is encrypted'],
+    [/^ip route\b/, 'Routing', ''],
+  ];
+  function blocks(dev, lines) {
+    const out = []; let cur = null;
+    for (const l of lines) {
+      if (/^\s*!?\s*$/.test(l) || /^\s*exit$/.test(l) || /^(configure terminal|end)$/.test(l)) continue;
+      if (!/^\s/.test(l)) {
+        const g = GROUPS.findIndex(([re]) => re.test(l));
+        if (!cur || cur.g !== g) { cur = { g, lines: [] }; out.push(cur); }
+      }
+      if (cur) cur.lines.push(l);
+    }
+    return `<div class="cfg-blocks">${out.map((b, i) => { const G = GROUPS[b.g] || [null, 'Configuration', '']; return `<div class="cfg-block"><div class="cfg-block-title"><span class="cfg-block-num">${i + 1}</span>${G[1]}${G[2] ? `<span class="cfg-block-sub">${G[2]}</span>` : ''}</div>${cfg(dev, b.lines)}</div>`; }).join('')}</div>`;
+  }
+
   const shown = lines => lines.slice(1, -1).filter(l => !/^\s*exit$/.test(l));
   const EDU_NOTICE = callout('edu', `<b>🎓 For learning only.</b> This is a simulator to practise IOS XE commands and get familiar with VPN and post-quantum concepts. It is not a real router: output can differ from real platforms, so <b>don't use it to validate configurations</b>. Provided <b>as is</b>, with no warranty and no support. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
   const LAB_TABLE = `<table class="t mono">
@@ -144,7 +166,7 @@ ${HOW}`,
     {
       id: 'c-r1', title: 'Configure the VPN on R1', part: 'base', devices: ['r1'],
       html: `
-${cfg('r1', shown(R1_CLASSIC))}
+${blocks('r1', R1_CLASSIC)}
 <table class="t">
 <tr><td><code>group 20</code></td><td>The Diffie-Hellman group (ECDH P-384). The encryption keys come from this exchange.</td></tr>
 <tr><td><code>pre-shared-key</code></td><td>Only <b>authenticates</b> the peer. Both sides must use the same key.</td></tr>
@@ -165,7 +187,7 @@ ${callout('info', '<b>Smart defaults.</b> The proposal and policy are optional: 
       id: 'c-r3', title: 'Mirror it on R3', part: 'base', devices: ['r3'],
       html: `
 <p>R3 is the mirror image: the peer is R1 (10.0.12.1) and the tunnel address is .2.</p>
-${cfg('r3', shown(R3_CLASSIC))}
+${blocks('r3', R3_CLASSIC)}
 <p>When both sides match, IKEv2 negotiates on its own: watch for <code>%CRYPTO-5-IKEV2_SESSION_STATUS ... UP</code> and the arc on the topology.</p>
 ${callout('info', 'If the arc stays dashed (grey while negotiating, red with a <b>DOWN</b> badge when it fails), click it: the handshake inspector tells you which setting doesn\'t match.')}
 <div class="goal">Goal: an IKEv2 SA between R1 and R3.</div>`,
@@ -211,7 +233,7 @@ ${HOW}`,
     {
       id: 'p-r1', title: 'Configure the PQC VPN on R1', part: 'pqc', devices: ['r1'],
       html: `
-${cfg('r1', shown(R1_PQC))}
+${blocks('r1', R1_PQC)}
 <table class="t">
 <tr><td><code>pqc mlkem768</code></td><td>ML-KEM-768 is <b>required</b>: a peer without it is rejected. Add <code>optional</code> (<code>pqc mlkem768 optional</code>) only when some peers can't do ML-KEM yet.</td></tr>
 <tr><td><code>group 20</code></td><td>Still needed: the classical half of the hybrid exchange.</td></tr>
@@ -228,7 +250,7 @@ ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value.
       id: 'p-r3', title: 'Mirror it on R3', part: 'pqc', devices: ['r3'],
       html: `
 <p>Same configuration on R3, with R1 as the peer:</p>
-${cfg('r3', shown(R3_PQC))}
+${blocks('r3', R3_PQC)}
 <p>Watch the arc: when the SA is up with ML-KEM it becomes a thicker solid blue line and its badge reads <code>UP · Tu0 · ML-KEM-768 + DH 20</code>. The first pings may time out (<code>..!!!</code>) while the larger handshake completes.</p>
 <div class="goal">Goal: the R1–R3 SA is up with ML-KEM-768.</div>`,
       run: runOf('r3', R3_PQC),
@@ -294,8 +316,9 @@ ${HOW}`,
       id: 'm-classic', title: 'Start from a classic VPN', part: 'base', devices: ['r1', 'r3'],
       html: `
 <p>Build the classic VPN on both routers. It's the same configuration as the Classic tutorial:</p>
-${cfg('r1', shown(R1_CLASSIC))}
-${cfg('r3', shown(R3_CLASSIC), 'mirror: peer R1 (10.0.12.1), tunnel .2')}
+${blocks('r1', R1_CLASSIC)}
+<h4>R3 — the mirror image: peer R1 (10.0.12.1), tunnel .2</h4>
+${blocks('r3', R3_CLASSIC)}
 <p>Then look at the SA:</p>
 ${cfg('r1', ['show crypto ikev2 sa'])}
 ${out(['      Encr: AES-CBC, keysize: 256, PRF: SHA512, Hash: SHA512, DH Grp:20, Auth sign: PSK, Auth verify: PSK'])}
@@ -433,16 +456,17 @@ ${callout('info', 'With many sites, upgrade the <b>hub</b> first with <code>opti
     { id: 'M4', title: 'ML-KEM 768 on R1, 1024 on R3, both required', label: 'inferred', initiator: 'r3', r1: { pqc: 'mlkem768' }, r3: { pqc: 'mlkem1024' } },
   ];
   // IOS commands that turn configuration `from` into `to` (one router); used by the panel and by the tests
-  function negCommands(dev, from, to) {
-    const L = [], prop = [], peer = dev === 'r1' ? 'R3' : 'R1';
+  function negCommands(dev, from, to, own) {
+    const N = own || NAMES;   // the learner's names when the panel knows them
+    const L = [], prop = [], peer = (own && own.peer) || (dev === 'r1' ? 'R3' : 'R1');
     if (to.enc.join() !== from.enc.join()) prop.push(` encryption ${to.enc.join(' ')}`);
     if (to.integ.join() !== from.integ.join()) prop.push(` integrity ${to.integ.join(' ')}`);
     if (to.group.join() !== from.group.join()) prop.push(` group ${to.group.join(' ')}`);
     if (to.pqc !== from.pqc || to.optional !== from.optional) prop.push(to.pqc === 'none' ? ' no pqc' : ` pqc ${to.pqc}${to.optional ? ' optional' : ''}`);
-    if (prop.length) L.push(`crypto ikev2 proposal ${NAMES.prop}`, ...prop);
-    if (to.ts !== from.ts) L.push(`crypto ipsec transform-set ${NAMES.ts} ${to.ts}`);
-    if (to.psk !== from.psk) L.push(`crypto ikev2 keyring ${NAMES.keys}`, ` peer ${peer}`, `  pre-shared-key ${to.psk}`);
-    if (to.peerId !== from.peerId) L.push(`crypto ikev2 profile ${NAMES.prof}`, ` no match identity remote address ${from.peerId} 255.255.255.255`, ` match identity remote address ${to.peerId} 255.255.255.255`);
+    if (prop.length) L.push(`crypto ikev2 proposal ${N.prop}`, ...prop);
+    if (to.ts !== from.ts) L.push(`crypto ipsec transform-set ${N.ts} ${to.ts}`);
+    if (to.psk !== from.psk) L.push(`crypto ikev2 keyring ${N.keys}`, ` peer ${peer}`, `  pre-shared-key ${to.psk}`);
+    if (to.peerId !== from.peerId) L.push(`crypto ikev2 profile ${N.prof}`, ` no match identity remote address ${from.peerId} 255.255.255.255`, ` match identity remote address ${to.peerId} 255.255.255.255`);
     return L;
   }
   const NEG = { NAMES, BASE, SCENARIOS, TUN: { r1: '192.168.100.1', r3: '192.168.100.2' }, commands: negCommands,
@@ -479,8 +503,8 @@ ${LAB_TABLE}`,
 <p>Both ends start identical: <code>aes-cbc-256 / sha512 / group 20</code>, the same pre-shared key and the transform set <code>esp-gcm 256</code>. Turn on <code>debug crypto ikev2 error</code> on both routers so the negotiation errors appear in the consoles.</p>
 ${cfg('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end'])}
 ${cfg('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end'])}
-${cfg('r1', shown(R1_NEG))}
-${cfg('r3', shown(R3_NEG))}
+${blocks('r1', R1_NEG)}
+${blocks('r3', R3_NEG)}
 ${cfg('r1', ['debug crypto ikev2 error', 'ping 192.168.100.2'])}
 ${cfg('r3', ['debug crypto ikev2 error'])}
 ${callout('tip', 'The baseline also logs <code>% IKEv2 profile not found</code> and <code>Error constructing config reply</code> on one router. That is harmless config-exchange noise, seen on real routers too: the tunnel is fine. Don\'t chase it.')}
@@ -576,7 +600,10 @@ ${callout('info', 'M2 matches real C8235-G2 output (Gomez, Exercise 4). M1 and M
     negotiate: { title: 'Quick lab · Negotiation experiments', badge: 'Negotiation', kicker: 'What happens when the two ends differ', finish: 'Lab complete — you derived the negotiation rules', steps: NEGOTIATE.map(x => x.id) },
     migrate: { title: 'Quick lab · From Classic to PQC', badge: 'Classic → PQC', kicker: 'Short lab — upgrade a classic VPN to ML-KEM', finish: 'Lab complete — classic VPN migrated to ML-KEM-768', steps: MIGRATE.map(x => x.id) },
   };
-  const api = { STEPS: ALL, TRACKS, BY_ID, DEFAULT_TRACK: 'classic', GUIDE_URL, BLOG_URL, NEG };
+  const NAME_ROLES = {};
+  for (const p of ['CLASSIC', 'PQC']) Object.assign(NAME_ROLES, { [`${p}-PROPOSAL`]: 'proposal', [`${p}-POLICY`]: 'policy', [`${p}-KEYRING`]: 'keyring', [`${p}-PROFILE`]: 'profile', [`${p}-TS`]: 'tset', [`${p}-IPSEC`]: 'ipsec' });
+  Object.assign(NAME_ROLES, { [NAMES.prop]: 'proposal', [NAMES.pol]: 'policy', [NAMES.keys]: 'keyring', [NAMES.prof]: 'profile', [NAMES.ts]: 'tset', [NAMES.ipsec]: 'ipsec' });
+  const api = { STEPS: ALL, TRACKS, BY_ID, DEFAULT_TRACK: 'classic', GUIDE_URL, BLOG_URL, NEG, NAME_ROLES };
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.TUTORIAL = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

@@ -304,3 +304,13 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 /* theme toggle */
 .theme-btn { font: inherit; font-size: 15px; line-height: 1; width: 32px; height: 30px; border-radius: var(--radius-control); border: 1px solid var(--line); background: transparent; color: var(--ink); cursor: pointer; }
 .theme-btn:hover { border-color: var(--action); color: var(--accent-text); }
+
+.cfg-adapted { margin-left: auto; font-size: 12px; line-height: 16px; font-weight: 600; color: var(--accent-text); border: 1px solid var(--action); border-radius: var(--radius-pill); padding: 0 8px; }
+
+/* classic VPN configuration split into one sub-block per construct */
+.cfg-blocks { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; margin: 10px 0; }
+.cfg-block { min-width: 0; }
+.cfg-block .cfg { margin: 4px 0 12px; }
+.cfg-block-title { font-size: 14px; line-height: 20px; font-weight: 700; margin-top: 6px; padding-left: 28px; position: relative; }
+.cfg-block-num { position: absolute; left: 0; top: 0; display: grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; border: 1.5px solid var(--action); color: var(--accent-text); font-size: 11px; }
+.cfg-block-sub { display: block; font-weight: 400; font-size: 13px; line-height: 18px; color: var(--muted); }

@@ -181,10 +181,56 @@
     });
   }
   // reading order inside a step: goal first, the "what each line does" tables folded away
+  /* ── commands follow the learner's own object names ──
+     Tutorials name their objects (CLASSICAL-KEYRING …). A learner who chose other names gets the
+     snippets, Show Me and ▶ typed against THEIR objects, read live from the router. */
+  const NAME_ROLES = window.TUTORIAL.NAME_ROLES || {};
+  const reEsc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  function adaptCmds(dev, cmds) {
+    if (!lab.dev(dev) || !Object.keys(NAME_ROLES).length) return cmds;
+    const nm = lab.vpnNames(dev); let kr = null, changed = false;
+    const out = cmds.map(raw => {
+      let line = raw;
+      for (const [canon, role] of Object.entries(NAME_ROLES)) {
+        if (!line.includes(canon) || nm.exists[role](canon) || !nm[role] || nm[role] === canon) continue;
+        line = line.replace(new RegExp(`(^|\\s)${reEsc(canon)}(?=$|\\s)`, 'g'), `$1${nm[role]}`);
+      }
+      const k = /^\s*crypto ikev2 keyring (\S+)/.exec(line); if (k) kr = k[1]; else if (/^\S/.test(line) && !/^\s*peer /.test(line)) kr = /^\s*(exit|!)/.test(line) ? kr : null;
+      // `peer R3` inside the learner's keyring: use their peer entry for the tunnel peer
+      const pm = /^(\s*)peer (\S+)$/.exec(line);
+      if (pm && kr && lab.dev(dev).crypto.keyrings[kr]) {
+        const peers = lab.dev(dev).crypto.keyrings[kr].peers;
+        if (!peers[pm[2]]) { const names = Object.keys(peers); const pick = (nm.dest && Object.keys(peers).find(n => peers[n].address === nm.dest)) || (names.length === 1 ? names[0] : null); if (pick) line = `${pm[1]}peer ${pick}`; }
+      }
+      if (line !== raw) changed = true;
+      return line;
+    });
+    out.changed = changed; return out;
+  }
+  function adaptRun(run) {
+    const byDev = {}; run.forEach(([k, c], i) => (byDev[k] = byDev[k] || []).push(i));
+    const res = run.map(x => x.slice());
+    for (const [k, idx] of Object.entries(byDev)) { const a = adaptCmds(k, idx.map(i => run[i][1])); idx.forEach((i, j) => { res[i][1] = a[j]; }); }
+    return res;
+  }
+  function adaptSnippets(li) {
+    if (!li || !Object.keys(NAME_ROLES).length) return;
+    li.querySelectorAll('.cfg').forEach(box => {
+      const pre = box.querySelector('pre'), chip = box.querySelector('.dev-chip'); if (!pre || !chip) return;
+      const dev = ([...chip.classList].map(c => /^dev-(r\d)$/.exec(c)).find(Boolean) || [])[1]; if (!dev) return;
+      if (pre.dataset.orig == null) pre.dataset.orig = pre.textContent;
+      const a = adaptCmds(dev, pre.dataset.orig.split('\n')); const txt = a.join('\n');
+      if (pre.textContent !== txt) pre.textContent = txt;
+      let tag = box.querySelector('.cfg-adapted');
+      if (a.changed && !tag) { tag = document.createElement('span'); tag.className = 'cfg-adapted'; tag.textContent = 'uses your names'; tag.title = 'Object names in this snippet were taken from your configuration'; box.querySelector('.cfg-head').appendChild(tag); }
+      if (!a.changed && tag) tag.remove();
+    });
+  }
   // which variant of a step applies right now (e.g. the smart-defaults version of the ML-KEM steps)
   const altOn = s => { try { return !!(s.alt && s.alt.when(lab)); } catch (e) { return false; } };
-  const runOf = s => altOn(s) ? s.alt.run : s.run;
+  const runOf = s => adaptRun(altOn(s) ? s.alt.run : s.run);
   function syncVariants() {
+    document.querySelectorAll('.step.open').forEach(adaptSnippets);
     STEPS.forEach((s, i) => {
       if (!s.alt) return; const li = $('#step-' + i); if (!li) return;
       const on = altOn(s); li.querySelector('.v-main').hidden = on; li.querySelector('.v-alt').hidden = !on;
@@ -616,6 +662,7 @@ SK_pi' = prf+(PPK, SK_pi)    SK_pr' = prf+(PPK, SK_pr)   ← RFC 8784: PPK "${es
   let fsSaved = 's'; try { fsSaved = localStorage.getItem('spq-fs') || 's'; } catch (e) { }
   topoReady = true; setFont(fsSaved, false);
   window.__lab = lab; // for debugging in the console
+  window.__adaptRun = adaptRun; // ditto: commands as Show Me would type them
   // extension point for tutorial-specific widgets (e.g. the negotiation panel in v5-quickstart)
   if (typeof window.TUTORIAL.mount === 'function') window.TUTORIAL.mount({
     lab, typeCmd, selectDev, refresh, checkStep, track: TRACK_ID,

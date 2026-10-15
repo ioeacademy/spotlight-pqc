@@ -376,6 +376,25 @@
       return l.length ? l : d.crypto.defaults.tset ? ['default'] : [];
     }
     effectiveProposals(devKey) { return this._policyProposals(this.devs[devKey]); }
+    // the learner's own object names, read from the running VPN (tunnel → IPsec profile → IKEv2 profile → keyring …)
+    // so tutorials can type commands against them instead of assuming the tutorial's names
+    vpnNames(devKey) {
+      const d = this.devs[devKey], c = d.crypto;
+      const only = store => { const k = Object.keys(store).filter(n => n !== 'default'); return k.length === 1 ? k[0] : null; };
+      const tun = Object.values(d.ifaces).filter(i => i.kind === 'tunnel' && i.tunnel.protection && i.tunnel.mode === 'ipsec ipv4').sort((a, b) => ifSort(a.name, b.name))[0];
+      const ip = tun && (c.ipsecProfiles[tun.tunnel.protection] ? tun.tunnel.protection : null);
+      const ipo = ip ? c.ipsecProfiles[ip] : null;
+      const tset = (ipo && (ipo.tsList && ipo.tsList[0] || ipo.ts)) || only(c.tsets);
+      const profile = (ipo && c.profiles[ipo.ikev2Profile] ? ipo.ikev2Profile : null) || only(c.profiles);
+      const keyring = (profile && c.keyrings[c.profiles[profile].keyringLocal] ? c.profiles[profile].keyringLocal : null) || only(c.keyrings);
+      const used = this._policyProposals(d).filter(p => p.name !== 'default');
+      const proposal = (used[0] && used[0].name) || only(c.proposals);
+      const policy = Object.keys(c.policies).find(n => n !== 'default' && proposal && c.policies[n].proposals.includes(proposal)) || only(c.policies);
+      // keyring peer name for each peer address
+      const peers = {}; if (keyring) for (const [n, pr] of Object.entries(c.keyrings[keyring].peers)) if (pr.address) peers[pr.address] = n;
+      return { proposal, policy, keyring, profile, tset, ipsec: ip || only(c.ipsecProfiles), tunnel: tun ? tun.name : null, dest: tun ? tun.tunnel.dest : null, peers,
+        exists: { proposal: n => !!c.proposals[n], policy: n => !!c.policies[n], keyring: n => !!c.keyrings[n], profile: n => !!c.profiles[n], tset: n => !!c.tsets[n], ipsec: n => !!c.ipsecProfiles[n] } };
+    }
     // true when the router negotiates with the built-in default policy/proposal (no complete IKEv2 policy of its own)
     usesSmartDefaults(devKey) { const p = this.effectiveProposals(devKey); return p.length > 0 && p.every(x => x.name === 'default'); }
     ipsecProfileOf(devKey, name) { return this._ipsecProf(this.devs[devKey], name); }
