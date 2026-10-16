@@ -92,8 +92,9 @@ ${callout('info', 'The topology now shows the tunnel as a dotted arc: <b>GRE · 
 ${cfg('r1', ['configure terminal', 'ip route 10.3.3.0 255.255.255.0 192.168.100.2', 'end'])}
 ${cfg('r3', ['configure terminal', 'ip route 10.1.1.0 255.255.255.0 192.168.100.1', 'end'])}
 ${cfg('r1', ['ping 10.3.3.3 source Loopback1', 'traceroute 10.3.3.3'], 'test')}
-${out(['  1 10.3.3.3 1 msec 1 msec 2 msec'])}
+${out(['  1 192.168.100.2 3 msec *  2 msec'])}
 <p>The traceroute shows <b>one hop</b>, straight to R3: R2 is invisible, because the LAN packets travel inside GRE. R2 never learned a route to 10.1.1.0 or 10.3.3.0, and it doesn't need one.</p>
+<p>The hop is listed as <code>192.168.100.2</code>, R3's tunnel address, not 10.3.3.3: a router answers a traceroute from the interface it uses to reach the sender, and R3 reaches R1 through Tunnel0. The <code>*</code> in the middle is normal: IOS rate-limits the ICMP replies, so one of the three probes goes unanswered.</p>
 ${callout('warn', '<b>Don\'t route the WAN into the tunnel.</b> If the route to the tunnel destination (10.0.23.2) pointed into Tunnel0, the tunnel would carry itself: IOS logs <code>%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing</code> and the tunnel goes down. Try it with <code>ip route 10.0.23.2 255.255.255.255 Tunnel0</code>, then remove it.')}
 <div class="goal">Goal: R1 pings 10.3.3.3 from its LAN (source Loopback1), through the tunnel.</div>`,
       run: [...runOf('r1', ['configure terminal', 'ip route 10.3.3.0 255.255.255.0 192.168.100.2', 'end']), ...runOf('r3', ['configure terminal', 'ip route 10.1.1.0 255.255.255.0 192.168.100.1', 'end']), ['r1', 'ping 10.3.3.3 source Loopback1'], ['r1', 'traceroute 10.3.3.3']],
@@ -140,8 +141,10 @@ ${cfg('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Lo
 <tr><td>Tunnel0 up/up before R3 existed</td><td>Line protocol only needs a working source and a <i>routable</i> destination (${TAC}).</td></tr>
 <tr><td>Ping failed until R3 had a tunnel</td><td>The far end must have a tunnel with mirrored source and destination to decapsulate.</td></tr>
 <tr><td>Traceroute: one hop</td><td>The WAN is hidden inside GRE.</td></tr>
+<tr><td>A route change takes a few seconds to move the tunnel</td><td>IOS XE re-checks a GRE tunnel's line protocol about every 10 seconds after a route or source-address change; its own commands (<code>shutdown</code>, <code>tunnel destination</code>) act at once.</td></tr>
 <tr><td><code>M.M.M</code> above 1476 bytes</td><td>GRE adds 24 bytes; <code>ip mtu 1400</code> + <code>ip tcp adjust-mss 1360</code> keep packets from needing fragmentation.</td></tr>
 </table>
+${callout('tip', '<b>Try recursive routing.</b> On R1: <code>ip route 10.0.23.2 255.255.255.255 192.168.100.2</code> sends the tunnel\'s own destination into the tunnel. Watch <code>%ADJ-5-PARENT</code>, then <code>%TUN-5-RECURDOWN</code>: IOS shuts the tunnel for a minute, brings it back and shuts it again while the route remains. Remove the route with <code>no ip route …</code>.')}
 ${callout('tip', '<b>Try keepalives.</b> On R1: <code>interface Tunnel0</code> → <code>keepalive 2 2</code>. Then shut Tunnel0 on R3: after two missed keepalives R1\'s tunnel goes down by itself (' + KA + ').')}
 ${callout('warn', '<b>GRE is not encrypted.</b> Anyone on the WAN can read the LAN packets. To encrypt them, turn the tunnel into an IPsec VTI: the <a href="../v5-quickstart/?track=classic">Classic VPN quick lab</a> builds one, and the PQC labs make it quantum-safe.')}`,
       run: [], validate: () => true, hints: [],

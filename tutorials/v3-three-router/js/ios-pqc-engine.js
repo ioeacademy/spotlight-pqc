@@ -51,8 +51,13 @@
     const t = m[1].toLowerCase();
     const exact = IF_TYPES.find(x => x.name.toLowerCase() === t);
     const c = exact ? [exact] : IF_TYPES.filter(x => x.name.toLowerCase().startsWith(t));
-    return c.length === 1 ? c[0].name + m[2] : null;
+    if (c.length !== 1) return null;
+    const rg = IF_RANGE_OF(c[0].name);   // `interface Tunnel 2147483648` is out of range (0-2147483647)
+    if (rg && !m[2].includes('/') && (+m[2] < rg[0] || +m[2] > rg[1])) return null;
+    return c[0].name + m[2];
   }
+  const TUN_PROTO = { 'gre ip': 'GRE/IP', 'ipsec ipv4': 'IPSEC/IP', ipip: 'IP/IP', ipv6ip: 'IPv6/IP' };
+  const IF_RANGE_OF = n => ({ Loopback: [0, 2147483647], Tunnel: [0, 2147483647], Vlan: [1, 4094] })[n];
   // `interface ?` descriptions, as IOS XE prints them
   const IF_DESC = { GigabitEthernet: 'GigabitEthernet IEEE 802.3z', TwoGigabitEthernet: 'Two GigabitEthernet IEEE 802.3z', Loopback: 'Loopback interface', Tunnel: 'Tunnel interface', Vlan: 'Catalyst Vlans' };
   const IF_RANGE = { Loopback: [0, 2147483647], Tunnel: [0, 2147483647], Vlan: [1, 4094] };
@@ -183,7 +188,11 @@
     'clear:crypto ikev2': 'Clear IKEv2 SAs and statistics', 'debug:crypto ikev2': 'IKEv2 debug messages', 'show:ip route': 'IP routing table',
   };
   // descriptions for the MTU / ping options (IOS wording)
-  Object.assign(DESC, { 'df-bit': 'enable do not fragment bit in IP header', 'size': 'specify datagram size', 'mtu': 'Set IP Maximum Transmission Unit', 'adjust-mss': 'Adjust the mss of transit packets', 'tcp': 'TCP header compression and/or mss adjustment configuration', 'keepalive': 'Enable keepalive' });
+  Object.assign(DESC, { 'df-bit': 'enable do not fragment bit in IP header', 'size': 'specify datagram size', 'mtu': 'Set IP Maximum Transmission Unit', 'adjust-mss': 'Adjust the mss of transit packets', 'tcp': 'TCP interface commands', 'keepalive': 'Enable keepalive',
+    // GRE options, as `tunnel ?` / `tunnel mode ?` print them on IOS-XE 26.02 (gre_cml_dataset E6)
+    'tunnel key': 'security or selector key', 'tunnel checksum': 'enable end to end checksumming of packets', 'tunnel path-mtu-discovery': 'Enable Path MTU Discovery on tunnel',
+    'mode ipip': 'IP over IP encapsulation', 'mode ipv6ip': 'IPv6 over IP encapsulation', 'gre ipv6': 'over IPv6', 'gre multipoint': 'over IPv4 (multipoint)',
+    'bandwidth': 'Set bandwidth informational parameter' });
   const ARG_DESC = { WORD: 'WORD', IP: 'A.B.C.D', IFACE: 'Interface', LINE: 'LINE', RANGE: '' };
 
   /* ───────────────────────── Pattern parser ───────────────────────── */
@@ -289,7 +298,7 @@
         if (ih.complete) ifComplete = ih.complete;
       } else if (endsSpace) {
         if (s.arg === 'RANGE') out.set(`<${s.lo}-${s.hi}>`, (x.c.argHelp && x.c.argHelp[n]) || '');
-        else out.set(ARG_DESC[s.arg] || s.arg, (x.c.argHelp && x.c.argHelp[n]) || (s.arg === 'IFACE' ? 'Interface name' : ''));
+        else out.set((x.c.argName && x.c.argName[n]) || ARG_DESC[s.arg] || s.arg, (x.c.argHelp && x.c.argHelp[n]) || (s.arg === 'IFACE' ? 'Interface name' : ''));
       }
     }
     const entries = [...out.entries()].sort((a, b) => (/^[A-Z<]/.test(a[0]) ? 1 : 0) - (/^[A-Z<]/.test(b[0]) ? 1 : 0) || a[0].localeCompare(b[0]));
@@ -304,6 +313,9 @@
   class Lab {
     constructor(topology, opts = {}) {
       this.now = opts.now || (() => Date.now());
+      // IOS-XE re-evaluates GRE line protocol after route / source-address changes on a ~10 s periodic check
+      // (gre_cml_dataset); 0 = re-evaluate on every tick
+      this.greCheckMs = opts.greCheckMs != null ? opts.greCheckMs : 10000;
       this.disclaimer = opts.disclaimer !== false;
       this.topo = topology;
       this.devs = {};
@@ -330,18 +342,33 @@
         crypto: { fragMtu: null, proposals: {}, policies: {}, keyrings: {}, profiles: {}, tsets: {}, ipsecProfiles: {},
           // IKEv2 smart defaults (Cisco "Configuring IKEv2": default proposal/policy/IPsec profile/transform set)
           defaults: { proposal: true, policy: true, ipsecProfile: true, tset: true } },
-        debug: { ikev2: false, err: false }, arp: new Set(), bootAt: this.now() - (def.uptimeMin || 0) * 60000, lastChange: this.now(), stats: { inReq: 0, outReq: 0, inRej: 0, outRej: 0 },
+        debug: { ikev2: false, err: false }, arp: this._arpSet(), bootAt: this.now() - (def.uptimeMin || 0) * 60000, lastChange: this.now(), stats: { inReq: 0, outReq: 0, inRej: 0, outRej: 0 },
         exch: {}, pqcSupport: def.pqcSupport !== false, version: def.version || '26.02.01',
       };
       for (const [n, cfg] of Object.entries(def.interfaces)) {
         d.ifaces[n] = { name: n, kind: ifKind(n), shutdown: !!cfg.shutdown, ip: cfg.ip || '', mask: cfg.mask || '', desc: cfg.desc || '',
           vlan: cfg.vlan || null, swMode: cfg.vlan ? 'access' : null, tunnel: ifKind(n) === 'tunnel' ? { source: '', dest: '', mode: 'gre ip', protection: '' } : null,
-          boot: true, createdAt: this.now(), cnt: { inP: 0, outP: 0, inB: 0, outB: 0, last: null } };
+          boot: true, createdAt: this.now(), cnt: { inP: 0, outP: 0, inB: 0, outB: 0, last: null }, bw: cfg.bandwidth || null };
       }
       for (const r of def.routes || []) d.routes.push({ ...r });
       return d;
     }
     dev(k) { return this.devs[k]; }
+    // ARP cache: a Set of "dev>ip" keys that remembers when each entry was learned (`show arp` Age)
+    _arpSet() {
+      const lab = this, at = new Map();
+      return new (class extends Set {
+        add(k) { if (!this.has(k)) at.set(k, lab.now()); return super.add(k); }
+        delete(k) { at.delete(k); return super.delete(k); }
+        learnedAt(k) { return at.get(k); }
+      })();
+    }
+    _mac(devKey, name) {   // stable per-interface MAC: 5254.00xx.xxxx on virtual platforms (C8000V), 70b3.17ab.xxxx otherwise
+      const d = this.devs[devKey], n = this.order.indexOf(devKey) + 1, k = Object.keys(d.ifaces).indexOf(name) + 1;
+      const h = (x, w) => x.toString(16).padStart(w, '0');
+      return /C8000V/i.test(d.model) ? `5254.00${h(n * 16 + k, 2)}.${h((n * 4099 + k * 257) & 0xffff, 4)}` : `70b3.17ab.${h(n * 0x100 + k, 4)}`;
+    }
+    _dbg(devKey, flag, msg) { if (this.devs[devKey].debug[flag]) this.logQueue.push({ dev: devKey, text: `${this._ts()}: ${msg}`, cls: 'debug' }); }
 
     /* ---------- events ---------- */
     _ts() {
@@ -403,6 +430,13 @@
     tsetOf(devKey, name) { return this._tset(this.devs[devKey], name); }
     _saOf(st, devKey) { return st && st.sa && st.sa.half !== devKey ? st.sa : null; }
     drainLogs() { const q = this.logQueue; this.logQueue = []; return q; }
+    _flushLater() {
+      if (!this.laterLogs || !this.laterLogs.length) return;
+      const now = this.now(), due = this.laterLogs.filter(x => x.at <= now);
+      this.laterLogs = this.laterLogs.filter(x => x.at > now);
+      for (const x of due) if (!x.check || x.check()) this._log(x.devKey, x.msg);
+    }
+
 
     /* ---------- L2 / interface state ---------- */
     _peerPort(devKey, port) {
@@ -425,7 +459,7 @@
         case 'loopback': return true;
         case 'tunnel': {
           if (i.tunnel.mode === 'ipsec ipv4') { const st = this._pairOf(devKey, name); return !!(st && st.state === 'up' && this._saOf(st, devKey) && !st.sa.child.down); }
-          return this._greState(devKey, i).up;
+          return i.tunnel.lineUp !== undefined ? i.tunnel.lineUp : this._greState(devKey, i).up;   // latched by _greTick
         }
       }
       return false;
@@ -468,20 +502,40 @@
        tunnel stays up/up even when the far end is missing: traffic is then silently dropped. */
     _greState(devKey, i) {
       const d = this.devs[devKey], t = i.tunnel;
+      if (i.shutdown) return { up: false, reason: 'shutdown' };
       if (t.protection) return { up: false, reason: 'protection' };   // GRE over IPsec: not modelled
-      const src = this._srcIp(d, i);
-      const srcIf = !t.source ? null : isIp(t.source) ? Object.values(d.ifaces).find(x => x.ip === t.source && x.kind !== 'tunnel') : d.ifaces[t.source];
-      if (!t.source || !srcIf || !src || !this.lineUp(devKey, srcIf.name)) return { up: false, reason: 'source' };
       if (!t.dest) return { up: false, reason: 'destination' };
+      // IOS-XE 26.02 (gre_cml_dataset E2/E5): a source interface that is down, or a destination without a route, is
+      // "no output interface"; a source that is up but has no IP address is "no IPv4 tunnel source address"
+      const srcIf = this._greSrcIf(d, i);
+      if (!t.source || !srcIf) return { up: false, reason: 'source' };
+      if (!this.lineUp(devKey, srcIf.name)) return { up: false, reason: 'route' };
       const key = devKey + ':' + i.name;
       this._greEval = this._greEval || new Set();
       if (this._greEval.has(key)) return { up: true, reason: null };   // evaluating this tunnel: assume up to see where its destination routes
       this._greEval.add(key);
       let r; try { r = this.lookup(devKey, t.dest); } finally { this._greEval.delete(key); }
       if (!r) return { up: false, reason: 'route' };
+      if (!this._srcIp(d, i)) return { up: false, reason: 'source' };
       if (r.iface === i.name) return { up: false, reason: 'recursive' };
       if (t.ka && t.ka.down) return { up: false, reason: 'keepalive' };
       return { up: true, reason: null };
+    }
+    // GRE adds 24 bytes (20 IP + 4 GRE), +4 with a key, +4 with checksums; IP-in-IP and IPv6-in-IP add 20
+    _tunnelTransportMtu(i) {
+      const T = i.tunnel; if (T.mode === 'ipip' || T.mode === 'ipv6ip') return 1480;
+      return 1476 - (T.key != null ? 4 : 0) - (T.csum ? 4 : 0);
+    }
+    _greSrcIf(d, i) {
+      const s = i.tunnel.source; if (!s) return null;
+      return isIp(s) ? Object.values(d.ifaces).find(x => x.ip === s && x.kind !== 'tunnel') : d.ifaces[s];
+    }
+    // the reason IOS records when the line protocol goes down (`Last state info`): a source without an IP address is
+    // recorded as such even when the evaluation then reports "no output interface" (dataset E2 f3, E5 source)
+    _greDownReason(devKey, i) {
+      const srcIf = this._greSrcIf(this.devs[devKey], i);
+      if (!i.shutdown && i.tunnel.dest && srcIf && !srcIf.ip && !isIp(i.tunnel.source)) return 'source';
+      return this._greState(devKey, i).reason || 'shutdown';
     }
     // the far end of a GRE tunnel: a router owning the destination with a tunnel whose source/destination mirror ours
     _grePeer(devKey, i) {
@@ -494,6 +548,18 @@
       }
       return null;
     }
+    // `Tunnel linestate evaluation down - …` / `Last state info : down - …` wording
+    _greReasonText(reason) {
+      return { destination: 'no IPv4 tunnel destination address', source: 'no IPv4 tunnel source address', route: 'no output interface',
+        recursive: 'no output interface', keepalive: 'keepalive down', shutdown: 'interface not up', protection: 'interface not up' }[reason] || 'interface not up';
+    }
+    // a port going down flushes the ARP entries learned through it, here and on its link peer
+    _flushArp(devKey, ifName) {
+      const d = this.devs[devKey], i = d.ifaces[ifName]; if (!i || !i.ip) return;
+      for (const k of [...d.arp]) { const nh = k.split('>')[1]; if (nh && inNet(nh, i.ip, i.mask)) d.arp.delete(k); }
+      const peer = this._peerPort && i.kind === 'phys' ? this._peerPort(devKey, ifName) : null;
+      if (peer) this.devs[peer[0]].arp.delete(`${peer[0]}>${i.ip}`);
+    }
     _greKey(a, b) { return 'gre:' + [a, b].sort().join('|'); }
     // GRE tunnels for the topology and the inspector
     greTunnels() {
@@ -505,14 +571,15 @@
         if (seen.has(key)) continue; seen.add(key);
         const st = this._greState(k, i), stb = p.dev ? this._greState(p.dev, this.devs[p.dev].ifaces[p.if]) : null;
         out.push({ key, a: { dev: k, if: i.name }, b: p.dev ? { dev: p.dev, if: p.if } : null, owner: p.owner, shutdown: i.shutdown || (p.dev && this.devs[p.dev].ifaces[p.if].shutdown),
-          upA: this.lineUp(k, i.name), upB: p.dev ? this.lineUp(p.dev, p.if) : null, reasonA: i.shutdown ? 'shutdown' : st.reason, reasonB: stb ? (this.devs[p.dev].ifaces[p.if].shutdown ? 'shutdown' : stb.reason) : null,
+          upA: this.lineUp(k, i.name), upB: p.dev ? this.lineUp(p.dev, p.if) : null, reasonA: i.shutdown ? 'shutdown' : i.tunnel.reason || st.reason,
+          reasonB: stb ? (this.devs[p.dev].ifaces[p.if].shutdown ? 'shutdown' : this.devs[p.dev].ifaces[p.if].tunnel.reason || stb.reason) : null,
           protection: !!i.tunnel.protection });
       }
       return out;
     }
     // keepalive timers and line-protocol logging for GRE tunnels (called from reconcile)
     _greTick() {
-      const now = this.now();
+      const now = this.now(), P = this.greCheckMs;
       for (const k of this.order) for (const i of Object.values(this.devs[k].ifaces)) {
         if (i.kind !== 'tunnel') continue;
         const t = i.tunnel;
@@ -521,18 +588,35 @@
             // a keepalive is sent even while the line protocol is down; the far end reflects it if it has a matching
             // tunnel (its own keepalive setting and line state do not matter) and can route the reply back
             const p = this._grePeer(k, i), src = this._srcIp(this.devs[k], i);
-            const back = p && p.dev && !this.devs[p.dev].ifaces[p.if].shutdown && this.forward(k, t.dest, { noTunnels: true }).ok && this.forward(p.dev, src).ok;
+            const self = this.owns(k, t.dest, { noTunnels: true });   // a tunnel to one of our own addresses answers itself (E5)
+            const back = self || (p && p.dev && !this.devs[p.dev].ifaces[p.if].shutdown && this.forward(k, t.dest, { noTunnels: true }).ok && this.forward(p.dev, src).ok);
             if (back) { t.ka.fails = 0; t.ka.down = false; } else { t.ka.fails++; if (t.ka.fails >= t.ka.retries) t.ka.down = true; }
             t.ka.next += t.ka.period * 1000;
           }
         }
-        if (t.mode !== 'gre ip') { if (t.lineUp) { t.lineUp = false; } continue; }
-        const up = !i.shutdown && this.lineUp(k, i.name);
-        if (t.lineUp === undefined) { t.lineUp = up; continue; }
+        if (t.mode === 'ipsec ipv4') { if (t.lineUp) { t.lineUp = false; } continue; }
+        // the tunnel's own configuration applies at once; routes, the source interface and its address on the periodic check
+        const sig = [i.shutdown, t.source, t.dest, t.mode, t.ka ? t.ka.down : ''].join('|'), changed = sig !== t.sig; t.sig = sig;
+        // each tunnel's periodic check runs on its own 10 s timer, started when the tunnel was created (E2/E4 timestamps)
+        const slot = P ? Math.floor((now - (i.createdAt || 0)) / P) : null, check = !P || slot !== t.slot; t.slot = slot;
+        const held = t.holdUntil != null && (P ? slot < t.holdUntil : now < t.holdUntil);   // recursion hold-down (60 s = 6 checks)
+        const st = this._greState(k, i);
+        if (t.lineUp === undefined) { t.lineUp = st.up; t.reason = st.reason; continue; }
+        // a destination that routes through the tunnel itself: the adjacency loops at once, the tunnel is shut on the next
+        // check and held down for 60 s, then comes back up — and loops again while the route remains (E4)
+        if (st.reason !== 'recursive') t.adj = false;
+        if (t.lineUp && st.reason === 'recursive' && !t.adj) { t.adj = true; this._log(k, `%ADJ-5-PARENT: Midchain parent maintenance for IP midchain out of ${i.name} - looped chain attempting to stack`); }
+        if (!changed && !check) continue;
+        const up = !i.shutdown && st.up && !held;
+        t.reason = held ? 'recursive' : st.reason;
         if (up !== t.lineUp) {
-          if (!up && this._greState(k, i).reason === 'recursive') this._log(k, `%TUN-5-RECURDOWN: ${i.name} temporarily disabled due to recursive routing`);
-          if (!i.shutdown) this._log(k, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${i.name}, changed state to ${up ? 'up' : 'down'}`);
-          t.lineUp = up;
+          if (up) t.upAt = now; else { t.downAt = now; t.lastDownReason = this._greDownReason(k, i); }
+          if (!up && st.reason === 'recursive') { this._log(k, `%TUN-5-RECURDOWN: ${i.name} temporarily disabled due to recursive routing`); t.holdUntil = P ? slot + Math.round(60000 / P) : now + 60000; t.reason = 'recursive'; }
+          // a tunnel configured in one go (up within a few seconds of its creation) does not log its first "up" (E2/E3/E4 setup)
+          const quiet = up && !t.wasUp && now - (i.createdAt || 0) < 8000;
+          if (up) t.wasUp = true;
+          if (!i.shutdown && !quiet) this._log(k, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${i.name}, changed state to ${up ? 'up' : 'down'}`);
+          t.lineUp = up; if (!up) t.adj = false;
         }
       }
     }
@@ -962,7 +1046,7 @@
         if (due || (opts.force && opts.force(st))) this._attempt(st);
       }
     }
-    tick() { this.reconcile(); this._greTick(); }
+    tick() { this.reconcile(); this._greTick(); this._rtDebug(); this._flushLater(); }
     _configTouched(devKey) {
       this.devs[devKey].lastChange = this.now();
       for (const st of this.pairState.values()) {
@@ -1039,9 +1123,33 @@
         if (m !== 'exec' && m !== 'priv' && toks[0].t.toLowerCase() === 'no' && toks.length > 1) { neg = true; ts = toks.slice(1); }
         const pool = neg ? cmds.filter(c => c.no) : cmds.filter(c => !c.noOnly);
         const r = matchCmds(pool, ts);
+        if (r.err === 'invalid' && /^[a-zA-Z-]+$/.test(ts[r.errIdx].t) && ifTypesFor(ts[r.errIdx].t).length === 1) {
+          // a bare interface type where an interface is expected: `interface Tunnel` is incomplete,
+          // `interface Tunnel 2147483648` / `Tunnel -1` point at the number that is out of range
+          const pre = matchCmds(pool, ts.slice(0, r.errIdx));
+          if (!pre.err && pre.cands.some(x => !x.line && x.c.tokens[r.errIdx] && x.c.tokens[r.errIdx].arg === 'IFACE')) {
+            const nx = ts[r.errIdx + 1];
+            if (!nx) return { err: 'incomplete' };
+            const rg = IF_RANGE_OF(ifTypesFor(ts[r.errIdx].t)[0].name);
+            let off = 0;
+            if (rg && /^\d+$/.test(nx.t)) { while (off < nx.t.length - 1 && +nx.t.slice(0, off + 1) <= rg[1]) off++; }
+            return { err: 'invalid', errPos: nx.pos + off, errIdx: r.errIdx + 1 + (neg ? 1 : 0) };
+          }
+        }
         if (r.err) return { err: r.err, errPos: ts[r.errIdx].pos, errIdx: r.errIdx + (neg ? 1 : 0) };
         const done = r.cands.filter(isComplete);
         if (!done.length) return { err: 'incomplete' };
+        // IFACE values that must exist (all physical ports; virtual ones where the command says so)
+        const c = done[0].c;
+        for (let k = 0; k < c.tokens.length; k++) {
+          if (c.tokens[k].arg !== 'IFACE') continue;
+          const name = done[0].vals[k], kind = ifKind(name);
+          const must = kind === 'phys' || c.ifExists === true || (c.ifExistsNeg && neg);
+          if (must && !d.ifaces[name]) {
+            const tok = ts[k], m2 = /\d/.exec(tok.t);
+            return { err: 'invalid', errPos: tok.pos + (m2 ? m2.index : 0), errIdx: k + (neg ? 1 : 0) };
+          }
+        }
         return { match: done[0], neg, mode: m, toks: ts };
       };
       let r = tryMode(mode);
@@ -1075,13 +1183,13 @@
       }
       const r = this._resolve(d, cmdPart, d.mode);
       if (r.err) {
-        if (r.err === 'incomplete') out.push({ text: '% Incomplete command.', cls: 'err' }, { text: '' });
+        if (r.err === 'incomplete') out.push({ text: cmdPart.trimEnd(), cls: 'err' }, { text: '% Incomplete command.', cls: 'err' }, { text: '' });
         else if (r.err === 'ambiguous') out.push({ text: `% Ambiguous command:  "${cmdPart}"`, cls: 'err' });
-        else out.push(...this._caret(promptBefore, r.errPos), { text: '% Invalid input detected at \'^\' marker.', cls: 'err' }, { text: '' });
+        else out.push({ text: cmdPart.trimEnd(), cls: 'err' }, ...this._caret('', r.errPos), { text: '% Invalid input detected at \'^\' marker.', cls: 'err' }, { text: '' });
         this._record(devKey, raw, raw, false);
         return { lines: out, prompt: this.prompt(devKey) };
       }
-      if (r.fallback) { d.mode = r.mode; d.ctx = {}; }
+      if (r.fallback && r.match.c.p !== 'do LINE') { d.mode = r.mode; d.ctx = {}; }
       const canon = (r.neg ? 'no ' : '') + r.match.vals.join(' ');
       const meta = {};
       let res;
@@ -1145,6 +1253,8 @@
         return [...this._caret(this.prompt(devKey), pos), { text: '% Invalid input detected at \'^\' marker.', cls: 'err' }];
       }
       if (!h.entries.length) return [{ text: '% Unrecognized command', cls: 'err' }];
+      // `show interfaces Tunnel0 ?` / `show ip interface Tunnel0 ?`: IOS-XE 26.02 answers "% Unrecognized command" (E6)
+      if (h.entries.length === 1 && h.entries[0][0] === '<cr>' && /^\s*sh\w*\s+(ip\s+)?int\w*\s+\S+\s+$/i.test(raw)) return [{ text: '% Unrecognized command', cls: 'err' }];
       if (h.partial) return [{ text: h.entries.map(e => e[0]).join('  ') }];
       const w = Math.max(...h.entries.map(e => e[0].length)) + 2;
       return h.entries.map(([k, v]) => ({ text: '  ' + k.padEnd(w) + v }));
@@ -1361,9 +1471,46 @@
       return [...out, `  Internet address is ${i.ip}/${maskLen(i.mask)}`, '  Broadcast address is 255.255.255.255',
         `  Address determined by ${i.boot ? 'non-volatile memory' : 'setup command'}`, `  MTU is ${this.ipMtu(devKey, name)} bytes`, '  Helper address is not set',
         '  Directed broadcast forwarding is disabled', '  Outgoing Common access list is not set', '  Outgoing access list is not set',
-        '  Inbound Common access list is not set', '  Inbound  access list is not set', '  Proxy ARP is enabled', '  Local Proxy ARP is disabled',
+        '  Inbound Common access list is not set', '  Inbound  access list is not set', `  Proxy ARP is ${i.kind === 'tunnel' || i.kind === 'loopback' ? 'disabled' : 'enabled'}`, '  Local Proxy ARP is disabled',
         '  Security level is default', '  Split horizon is enabled', '  ICMP redirects are always sent', '  ICMP unreachables are always sent',
-        '  ICMP mask replies are never sent', '  IP fast switching is enabled', '  IP Flow switching is disabled', '  IP CEF switching is enabled'];
+        '  ICMP mask replies are never sent', '  IP fast switching is enabled', '  IP Flow switching is disabled', '  IP CEF switching is enabled',
+        '  IP CEF switching turbo vector', '  IP Null turbo vector', '  Associated unicast routing topologies:', '        Topology "base", operation state is UP',
+        '  IP multicast fast switching is enabled', '  IP multicast distributed fast switching is disabled', '  IP route-cache flags are Fast, CEF',
+        '  Router Discovery is disabled', '  IP output packet accounting is disabled', '  IP access violation accounting is disabled',
+        '  TCP/IP header compression is disabled', '  RTP/IP header compression is disabled', '  Probe proxy name replies are disabled',
+        '  Policy routing is disabled', '  Network address translation is disabled', '  BGP Policy Mapping is disabled', '  Input features: MCI Check',
+        '  IPv4 WCCP Redirect outbound is disabled', '  IPv4 WCCP Redirect inbound is disabled', '  IPv4 WCCP Redirect exclude is disabled', '  IP Clear Dont Fragment is disabled'];
+    }
+    _ifOrder(d) {
+      const byName = (a, b) => { const ta = a.replace(/[\d/.]+$/, ''), tb = b.replace(/[\d/.]+$/, ''); return ta !== tb ? (ta < tb ? -1 : 1) : ifSort(a, b); };
+      return Object.keys(d.ifaces).sort(byName);
+    }
+    _showArp(devKey) {
+      const d = this.devs[devKey], rows = [];
+      for (const i of Object.values(d.ifaces)) {
+        if (!i.ip || i.kind === 'tunnel' || i.kind === 'loopback' || !this.lineUp(devKey, i.name)) continue;
+        rows.push([i.ip, '-', this._mac(devKey, i.name), i.name]);
+        for (const k of d.arp) {
+          const ip = k.split('>')[1]; if (!ip || !inNet(ip, i.ip, i.mask) || ip === i.ip) continue;
+          const peer = this.order.map(x => [x, Object.values(this.devs[x].ifaces).find(y => y.ip === ip && y.kind !== 'tunnel')]).find(x => x[1]);
+          const at = d.arp.learnedAt(k);
+          rows.push([ip, String(at != null ? Math.floor((this.now() - at) / 60000) : 0), peer ? this._mac(peer[0], peer[1].name) : 'Incomplete', i.name]);
+        }
+      }
+      rows.sort((a, b) => ipInt(a[0]) - ipInt(b[0]));
+      return ['Protocol  Address          Age (min)  Hardware Addr   Type   Interface', ...rows.map(([ip, age, mac, n]) => `Internet  ${ip.padEnd(15)}${age.padStart(10)}   ${mac.padEnd(14)}  ARPA   ${n}`)];
+    }
+    // `debug ip routing`: RIB additions and deletions, as `RT:` lines
+    _rtSnap(devKey) { return new Map(this.routes(devKey).map(r => [`${r.type}|${r.net}/${r.len}|${r.nh || ''}`, r])); }
+    _rtDebug() {
+      for (const k of this.order) {
+        const d = this.devs[k]; if (!d.debug.ipRouting) continue;
+        const now = this._rtSnap(k), prev = d.rtPrev || now;
+        const via = r => r.type === 'S' && r.nh ? `via ${r.nh}, static metric [1/0]` : r.type === 'S' ? `via 0.0.0.0, static metric [1/0]` : 'via 0.0.0.0, connected metric [0/0]';
+        for (const [key, r] of prev) if (!now.has(key)) this._dbg(k, 'ipRouting', `RT: del ${r.net} ${via(r)}`), this._dbg(k, 'ipRouting', `RT: delete subnet route to ${r.net}/${r.len}`);
+        for (const [key, r] of now) if (!prev.has(key)) this._dbg(k, 'ipRouting', `RT: add ${r.net}/${r.len} ${via(r)}`);
+        d.rtPrev = now;
+      }
     }
     _showIpIntBrief(devKey) {
       const d = this.devs[devKey];
@@ -1373,7 +1520,7 @@
       for (const i of Object.values(d.ifaces).sort((a, b) => byName(a.name, b.name))) {
         const st = i.shutdown ? 'administratively down' : (i.kind === 'phys' ? (this.portUp(devKey, i.name) ? 'up' : 'down') : i.kind === 'svi' ? (this.lineUp(devKey, i.name) ? 'up' : 'down') : 'up');
         const proto = this.lineUp(devKey, i.name) ? 'up' : 'down';
-        const method = i.ip ? 'manual' : i.boot ? 'NVRAM' : 'unset';
+        const method = i.ip ? 'manual' : i.boot ? 'NVRAM' : i.unset ? 'unset' : 'manual';
         out.push(`${i.name.padEnd(22)} ${(i.ip || 'unassigned').padEnd(16)}YES ${method.padEnd(7)}${st.padEnd(22)}${proto}`);
       }
       return out;
@@ -1416,22 +1563,38 @@
       const out = [`${name} is ${adm}, line protocol is ${this.lineUp(devKey, name) ? 'up' : 'down'}`];
       if (i.kind === 'tunnel') {
         const st = this._pairOf(devKey, name), sa = st && st.sa, e = espInfo(sa ? sa.params.esp : 'esp-gcm 256');
-        const s0 = this._srcIp(d, i), ipsec = i.tunnel.mode === 'ipsec ipv4', cnt = i.cnt || { inP: 0, outP: 0, inB: 0, outB: 0, last: null };
-        const recent = cnt.last && this.now() - cnt.last < 300000;
+        const T = i.tunnel, ipsec = T.mode === 'ipsec ipv4', cnt = i.cnt || { inP: 0, outP: 0, inB: 0, outB: 0, last: null };
+        // the source address is shown while the source interface has one, even when it is down (E2 f2)
+        const srcIf = this._greSrcIf(d, i), s0 = isIp(T.source) ? T.source : srcIf && srcIf.ip ? srcIf.ip : '';
+        const gre = T.mode === 'gre ip', tmtu = this._tunnelTransportMtu(i);
+        const recent = ipsec && cnt.last && this.now() - cnt.last < 300000;   // GRE: a few pings leave the 5-minute rates at 0 (E2)
         const fmtDate = ms => { const x = new Date(ms); return `${x.toLocaleString('en-US', { month: 'short' })} ${x.getDate()} ${x.getFullYear()} ${x.toTimeString().slice(0, 8)}`; };
         out.push('  Hardware is Tunnel');
         if (i.desc) out.push(`  Description: ${i.desc}`);
         if (i.ip) out.push(`  Internet address is ${i.ip}/${maskLen(i.mask)}`);
-        out.push(`  MTU ${ipsec ? e.tmtu : 9976} bytes, BW 100 Kbit/sec, DLY 50000 usec,`, `     reliability 255/255, txload ${recent ? 2 : 1}/255, rxload ${recent ? 2 : 1}/255`,
-          '  Encapsulation TUNNEL, loopback not set', i.tunnel.ka && !ipsec ? `  Keepalive set (${i.tunnel.ka.period} sec), retries ${i.tunnel.ka.retries}` : '  Keepalive not set', `  Tunnel linestate evaluation ${this.lineUp(devKey, name) ? 'up' : 'down'}`,
-          `  Tunnel source ${s0 || 'UNKNOWN'}${i.tunnel.source && !isIp(i.tunnel.source) ? ` (${i.tunnel.source})` : ''}, destination ${i.tunnel.dest || 'UNKNOWN'}`);
-        if (i.tunnel.source && !isIp(i.tunnel.source)) out.push('   Tunnel Subblocks:', '      src-track:', `         ${name} source tracking subblock associated with ${i.tunnel.source}`,
-          `          Set of tunnels with source ${i.tunnel.source}, 1 member (includes iterators), on interface <OK>`);
-        out.push(`  Tunnel protocol/transport ${ipsec ? 'IPSEC/IP' : 'GRE/IP'}`, ...(ipsec ? [] : ['    Key disabled, sequencing disabled', '    Checksumming of packets disabled']),
-          ipsec ? '  Tunnel TTL 255' : '  Tunnel TTL 255, Fast tunneling enabled', `  Tunnel transport MTU ${ipsec ? e.mtu : 1476} bytes`,
-          '  Tunnel transmit bandwidth 8000 (kbps)', '  Tunnel receive bandwidth 8000 (kbps)');
+        out.push(`  MTU ${ipsec ? e.tmtu : tmtu + 8500} bytes, BW ${i.bw || 100} Kbit/sec, DLY 50000 usec,`, `     reliability 255/255, txload ${recent ? 2 : 1}/255, rxload ${recent ? 2 : 1}/255`,
+          '  Encapsulation TUNNEL, loopback not set', i.tunnel.ka && !ipsec ? `  Keepalive set (${i.tunnel.ka.period} sec), retries ${i.tunnel.ka.retries}` : '  Keepalive not set',
+          `  Tunnel linestate evaluation ${this.lineUp(devKey, name) ? 'up' : ipsec ? 'down' : 'down - ' + this._greReasonText(i.shutdown ? 'shutdown' : T.reason || this._greState(devKey, i).reason)}`,
+          // "Tunnel source UNKNOWN" / "… 10.0.12.1 (GigabitEthernet1)" / "…, destination X" — as IOS-XE prints each combination
+          `  Tunnel source ${s0 || 'UNKNOWN'}${i.tunnel.source && !isIp(i.tunnel.source) ? ` (${i.tunnel.source})` : ''}${i.tunnel.dest ? `, destination ${i.tunnel.dest}` : ipsec ? ', destination UNKNOWN' : ''}`);
+        if (T.source && !isIp(T.source)) {
+          const n = Object.values(d.ifaces).filter(x => x.kind === 'tunnel' && x.tunnel.source === T.source).length;
+          out.push('   Tunnel Subblocks:', '      src-track:', `         ${name} source tracking subblock associated with ${T.source}`,
+            `          Set of tunnels with source ${T.source}, ${n} member${n > 1 ? 's' : ''} (includes iterators), on interface <OK>`);
+        }
+        out.push(`  Tunnel protocol/transport ${TUN_PROTO[T.mode] || 'GRE/IP'}`,
+          ...(gre ? [`    Key ${T.key != null ? '0x' + T.key.toString(16).toUpperCase() : 'disabled'}, sequencing disabled`, `    Checksumming of packets ${T.csum ? 'enabled' : 'disabled'}`] : []),
+          gre || T.mode === 'ipip' ? `  Tunnel TTL 255, Fast tunneling ${T.key != null || T.csum ? 'disabled' : 'enabled'}` : '  Tunnel TTL 255',
+          ...(T.pmtud ? ['  Path MTU Discovery, ager 10 mins, min MTU 92'] : []),
+          `  Tunnel transport MTU ${ipsec ? e.mtu : tmtu} bytes`, '  Tunnel transmit bandwidth 8000 (kbps)', '  Tunnel receive bandwidth 8000 (kbps)');
         if (i.tunnel.protection) out.push(`  Tunnel protection via IPSec (profile "${i.tunnel.protection}")`);
         if (ipsec) out.push('  Tunnel state info:', `    State change to up   : ${sa ? fmtDate(sa.establishedAt) : 'never'}`, `    State change to down : ${fmtDate(i.createdAt)}`, '    Last state info      : down - interface not up');
+        else {
+          const t = i.tunnel;
+          out.push('  Tunnel state info:', `    State change to up   : ${t.upAt ? fmtDate(t.upAt) : 'never'}`, `    State change to down : ${fmtDate(t.downAt || i.createdAt)}`);
+          // the reason of the previous down state, printed only while the tunnel is up
+          if (t.lastDownReason && this.lineUp(devKey, name)) out.push(`    Last state info      : down - ${this._greReasonText(t.lastDownReason)}`);
+        }
         const since = ms => ms == null ? 'never' : hms(Math.floor((this.now() - ms) / 1000));
         out.push(`  Last input ${since(cnt.last)}, output ${since(cnt.last)}, output hang never`, `  Last clearing of "show interface" counters ${since(i.createdAt)}`,
           '  Input queue: 0/375/0/0 (size/max/drops/flushes); Total output drops: 0', '  Queueing strategy: fifo', '  Output queue: 0/0 (size/max)',
@@ -1440,10 +1603,26 @@
           '     0 input errors, 0 CRC, 0 frame, 0 overrun, 0 ignored, 0 abort', `     ${cnt.outP} packets output, ${cnt.outB} bytes, 0 underruns`,
           '     Output 0 broadcasts (0 IP multicasts)', '     0 output errors, 0 collisions, 0 interface resets', '     0 unknown protocol drops', '     0 output buffer failures, 0 output buffers swapped out');
       } else {
-        out.push(`  Hardware is ${i.kind === 'svi' ? 'Ethernet SVI' : i.kind === 'loopback' ? 'Loopback' : i.vlan ? 'Integrated switch port' : '2.5GE MultiGig'}, address is 70b3.17ab.${(this.order.indexOf(devKey) + 1) * 11}0${Object.keys(d.ifaces).indexOf(name)}`);
+        // layout of IOS-XE 26.02 on C8000V (gre_cml_dataset E1/E3); counters are the simulator's own
+        const virt = /C8000V/i.test(d.model), lo = i.kind === 'loopback', cnt = i.cnt || { inP: 0, outP: 0, inB: 0, outB: 0 };
+        const mac = this._mac(devKey, name), never = !this.lineUp(devKey, name) && !cnt.inP;
+        if (lo) out.push('  Hardware is Loopback');
+        else out.push(`  Hardware is ${i.kind === 'svi' ? 'Ethernet SVI' : i.vlan ? 'Integrated switch port' : virt ? 'vNIC' : '2.5GE MultiGig'}, address is ${mac} (bia ${mac})`);
+        if (i.desc) out.push(`  Description: ${i.desc}`);
         if (i.ip) out.push(`  Internet address is ${i.ip}/${maskLen(i.mask)}`);
-        out.push(`  MTU 1500 bytes, BW ${i.kind === 'phys' ? '2500000' : '1000000'} Kbit/sec, DLY 10 usec, `);
-        if (i.kind === 'phys') out.push(`  Full-duplex, 2500Mb/s, media type is RJ45`, ...(i.vlan ? [`  Switchport access VLAN ${i.vlan}`] : []));
+        out.push(lo ? `  MTU 1514 bytes, BW ${i.bw || 8000000} Kbit/sec, DLY 5000 usec,` : `  MTU 1500 bytes, BW ${i.bw || (i.kind === 'phys' && !virt ? 2500000 : 1000000)} Kbit/sec, DLY 10 usec,`,
+          '     reliability 255/255, txload 1/255, rxload 1/255', `  Encapsulation ${lo ? 'LOOPBACK' : 'ARPA'}, loopback not set`, '  Keepalive set (10 sec)');
+        if (i.kind === 'phys') out.push(virt ? '  Full Duplex, 1000Mbps, link type is auto, media type is Virtual' : '  Full-duplex, 2500Mb/s, media type is RJ45',
+          ...(i.vlan ? [`  Switchport access VLAN ${i.vlan}`] : []), '  output flow-control is unsupported, input flow-control is unsupported');
+        if (!lo) out.push('  ARP type: ARPA, ARP Timeout 04:00:00');
+        out.push(`  Last input ${never ? 'never' : '00:00:01'}, output ${never || lo ? 'never' : '00:00:01'}, output hang never`, '  Last clearing of "show interface" counters never',
+          `  Input queue: 0/${lo ? 75 : 375}/0/0 (size/max/drops/flushes); Total output drops: 0`, '  Queueing strategy: fifo', `  Output queue: 0/${lo ? 0 : 40} (size/max)`,
+          '  5 minute input rate 0 bits/sec, 0 packets/sec', '  5 minute output rate 0 bits/sec, 0 packets/sec',
+          `     ${cnt.inP} packets input, ${cnt.inB} bytes, 0 no buffer`, '     Received 0 broadcasts (0 IP multicasts)', '     0 runts, 0 giants, 0 throttles',
+          `     0 input errors, 0 CRC, 0 frame, 0 overrun, 0 ignored${lo ? ', 0 abort' : ''}`, ...(lo ? [] : ['     0 watchdog, 0 multicast, 0 pause input']),
+          `     ${cnt.outP} packets output, ${cnt.outB} bytes, 0 underruns`, '     Output 0 broadcasts (0 IP multicasts)', '     0 output errors, 0 collisions, 0 interface resets',
+          '     0 unknown protocol drops', ...(lo ? [] : ['     0 babbles, 0 late collision, 0 deferred', '     0 lost carrier, 0 no carrier, 0 pause output']),
+          '     0 output buffer failures, 0 output buffers swapped out');
       }
       return out;
     }
@@ -1452,6 +1631,7 @@
       const ifBlock = (i) => {
         const b = [`interface ${i.name}`];
         if (i.desc) b.push(` description ${i.desc}`);
+        if (i.bw) b.push(` bandwidth ${i.bw}`);
         if (i.kind === 'phys' && i.vlan) b.push(` switchport access vlan ${i.vlan}`, ' switchport mode access');
         if (i.ip) b.push(` ip address ${i.ip} ${i.mask}`); else if (i.kind !== 'phys' || !i.vlan) b.push(' no ip address');
         if (i.ipMtu) b.push(` ip mtu ${i.ipMtu}`);
@@ -1463,6 +1643,9 @@
           if (i.tunnel.source) b.push(` tunnel source ${i.tunnel.source}`);
           if (i.tunnel.mode !== 'gre ip') b.push(` tunnel mode ${i.tunnel.mode}`);
           if (i.tunnel.dest) b.push(` tunnel destination ${i.tunnel.dest}`);
+          if (i.tunnel.key != null) b.push(` tunnel key ${i.tunnel.key}`);
+          if (i.tunnel.csum) b.push(' tunnel checksum');
+          if (i.tunnel.pmtud) b.push(' tunnel path-mtu-discovery');
           if (i.tunnel.protection) b.push(` tunnel protection ipsec profile ${i.tunnel.protection}`);
         }
         b.push('!');
@@ -1474,7 +1657,9 @@
         const body = ['!', ...b, 'end'];
         return ['Building configuration...', '', `Current configuration : ${body.join('\n').length + 2} bytes`, ...body];
       }
-      L.push('!', `! Last configuration change at ${new Date(d.lastChange).toTimeString().slice(0, 8)} UTC ${new Date(d.lastChange).toDateString()} by console`, '!',
+      // "! Last configuration change at 10:01:56 UTC Thu Oct 8 2026" — no "by" without AAA, day not zero-padded (26.02 datasets)
+      const lc = new Date(d.lastChange), lcd = lc.toDateString().replace(/ 0(\d) /, ' $1 ');
+      L.push('!', `! Last configuration change at ${lc.toTimeString().slice(0, 8)} UTC ${lcd}`, '!',
         `version ${IOS_VERSION}`, 'service timestamps debug datetime msec', 'service timestamps log datetime msec', 'platform qfp utilization monitor load 80', '!',
         `hostname ${d.hostname}`, '!', 'boot-start-marker', 'boot-end-marker', '!', 'no aaa new-model', '!', `license udi pid ${d.model} sn ${d.serial}`, 'license boot level advantage', '!');
       for (const [n, p] of Object.entries(c.proposals)) {
@@ -1548,7 +1733,7 @@
       const d = this.devs[devKey], i = d.ifaces[ifName]; if (!i) return 1500;
       if (i.ipMtu) return i.ipMtu;
       if (i.kind !== 'tunnel') return 1500;
-      if (i.tunnel.mode === 'gre ip') return 1476;
+      if (i.tunnel.mode !== 'ipsec ipv4') return this._tunnelTransportMtu(i);
       const st = this._pairOf(devKey, ifName), sa = st && st.sa; return espInfo(sa ? sa.params.esp : 'esp-gcm 256').mtu;
     }
     _ping(devKey, dst, opts) {
@@ -1594,8 +1779,21 @@
       if (ok) {
         const used = new Set(fwd.hops.filter(h => h.via === 'tunnel').map(h => h.key));
         for (const st of fresh) if (used.has(st.key) && st.sa.params.pqc) lost = Math.max(lost, 4);
-        for (const h of fwd.hops.filter(h => h.via === 'link')) { const k = `${h.from}>${h.nh}`; if (!this.devs[h.from].arp.has(k)) { this.devs[h.from].arp.add(k); lost = Math.max(lost, 1); } }
+        for (const h of this._linkHops(fwd.hops)) if (this._learnArp(h)) lost = Math.max(lost, 1);
+        for (const h of this._linkHops(back.hops)) this._learnArp(h);
         lost = Math.min(lost, count - 1);
+      }
+      // `debug ip packet` / `debug ip icmp` on the originating router (dataset E3)
+      if (r && (d.debug.ipPacket || d.debug.ipIcmp)) {
+        const eg = r.iface, s0 = srcIp || (d.ifaces[eg] || {}).ip, nh = d.ifaces[eg] && d.ifaces[eg].kind === 'tunnel' ? dst : (r.nh || dst);
+        const inIf = back.hops && back.hops.length ? back.hops[back.hops.length - 1].ingress : eg;
+        for (let k = 0; k < count; k++) {
+          const got = ok && k >= lost;
+          this._dbg(devKey, 'ipPacket', `IP: tableid=0, s=${s0} (local), d=${dst} (${eg}) nexthop=${nh}, routed via FIB`);
+          this._dbg(devKey, 'ipPacket', `IP: s=${s0} (local), d=${dst} (${eg}), len ${size}, sending`);
+          if (got) this._dbg(devKey, 'ipPacket', `IP: tableid=0, s=${dst} (${inIf}), d=${s0} (${inIf}) nexthop=${s0}, routed via RIB`);
+          if (got) this._dbg(devKey, 'ipIcmp', `ICMP: echo reply rcvd, src ${dst}, dst ${s0}, topology BASE, dscp 0 topoid 0`);
+        }
       }
       const succ = ok ? count - lost : 0;
       const marks = ok ? '.'.repeat(lost) + '!'.repeat(succ) : '.'.repeat(count);
@@ -1610,19 +1808,51 @@
           if (st && st.sa) { st.sa.counters[h.from].encaps += succ; st.sa.counters[h.to].decaps += succ; }
           else if (!String(h.key || '').startsWith('gre:')) continue;
           const ti = this.devs[h.from].ifaces[h.egress], tj = this.devs[h.to].ifaces[h.ingress];
-          if (ti && ti.cnt) { ti.cnt.outP += succ; ti.cnt.outB += succ * size; ti.cnt.last = this.now(); }
+          // a GRE tunnel counts output bytes with the GRE/IP header (100-byte ping → 124 bytes) and input without (E2)
+          const ovh = ti && ti.tunnel && ti.tunnel.mode === 'gre ip' ? 1500 - this._tunnelTransportMtu(ti) : 0;
+          if (ti && ti.cnt) { ti.cnt.outP += succ; ti.cnt.outB += succ * (size + ovh); ti.cnt.last = this.now(); }
           if (tj && tj.cnt) { tj.cnt.inP += succ; tj.cnt.inB += succ * size; tj.cnt.last = this.now(); }
         }
       } else out.push(`Success rate is 0 percent (0/${count})`);
       return { lines: out, ok, succ, count, path: ok ? { fwd: fwd.hops, back: back.hops } : { fwd: fwd.hops, back: [] }, srcIp, lost };
     }
+    // the physical hops under a path: a GRE hop is replaced by the underlay path to its tunnel destination
+    _linkHops(hops) {
+      const out = [];
+      for (const h of hops || []) {
+        if (h.via === 'link') { out.push(h); continue; }
+        const e = this.devs[h.from].ifaces[h.egress];
+        if (h.via === 'tunnel' && e && e.tunnel && e.tunnel.dest) out.push(...this.forward(h.from, e.tunnel.dest, { noTunnels: true }).hops.filter(x => x.via === 'link'));
+      }
+      return out;
+    }
+    // ARP resolution on a link hop: the sender caches the next hop and the target caches the sender. true = had to ARP
+    _learnArp(h) {
+      const k = `${h.from}>${h.nh}`, miss = !this.devs[h.from].arp.has(k);
+      this.devs[h.from].arp.add(k);
+      const me = this.devs[h.from].ifaces[h.egress];
+      if (me && me.ip) this.devs[h.to].arp.add(`${h.to}>${me.ip}`);
+      return miss;
+    }
+    // CEF builds the adjacency of a static route's next hop as soon as it can: the router ARPs for it when the route is
+    // added or its interface is brought up (dataset E2 f2: no loss after `no shutdown`; E2 f7: a connected host still costs a ".")
+    _arpNextHops(devKey) {
+      const d = this.devs[devKey];
+      for (const r of d.routes) {
+        if (!r.nh) continue;
+        const c = Object.values(d.ifaces).find(i => i.kind === 'phys' && i.ip && inNet(r.nh, i.ip, i.mask) && this.lineUp(devKey, i.name)); if (!c) continue;
+        const nb = this._neighbor(devKey, c.name, r.nh, {}); if (nb) this._learnArp({ from: devKey, to: nb.dev, egress: c.name, nh: r.nh });
+      }
+    }
     _traceroute(devKey, dst) {
       const out = ['Type escape sequence to abort.', `Tracing the route to ${dst}`, 'VRF info: (vrf in name/id, vrf out name/id)'];
       const f = this.forward(devKey, dst);
+      const d = this.devs[devKey], src = (() => { const r = this.lookup(devKey, dst); return r && d.ifaces[r.iface] ? d.ifaces[r.iface].ip : ''; })();
       f.hops.forEach((h, i) => {
         const last = f.ok && i === f.hops.length - 1;
-        const ip = last ? dst : this.devs[h.to].ifaces[h.ingress].ip;
-        out.push(`  ${i + 1} ${ip} ${i + 1} msec ${i + 1} msec ${i + 2} msec`);
+        // ICMP time-exceeded / port-unreachable are sourced from the interface the reply leaves through, towards our source
+        const back = this.lookup(h.to, src); const ip = (back && this.devs[h.to].ifaces[back.iface] && this.devs[h.to].ifaces[back.iface].ip) || this.devs[h.to].ifaces[h.ingress].ip;
+        out.push(last ? `  ${i + 1} ${ip} ${2 * i + 3} msec *  ${2 * i + 3} msec` : `  ${i + 1} ${ip} ${i + 2} msec ${i + 1} msec ${i + 2} msec`);
       });
       if (!f.ok) for (let i = f.hops.length; i < f.hops.length + 3; i++) out.push(`  ${i + 1}  *  *  * `);
       return { lines: out, path: f };
@@ -1649,7 +1879,7 @@
         };
       const SHOW = [
         C('show running-config', d => lab._runningConfig(d.key)),
-        C('show running-config interface IFACE', (d, v) => lab._runningConfig(d.key, v[3])),
+        C('show running-config interface IFACE', (d, v) => lab._runningConfig(d.key, v[3]), { ifExists: true }),
         C('show version', d => {
           const up = Math.floor((lab.now() - d.bootAt) / 60000), h = Math.floor(up / 60), m = up % 60;
           const upt = (h ? `${h} hour${h === 1 ? '' : 's'}, ` : '') + `${m} minute${m === 1 ? '' : 's'}`;
@@ -1665,7 +1895,7 @@
         C('show history', d => d.history.slice(-20).map(h => '  ' + h)),
         C('show logging', d => ['Syslog logging: enabled (0 messages dropped, 0 flushes, 0 overruns)', '    Console logging: level debugging', '', `Log Buffer (8192 bytes):`, ...d.logBuf]),
         C('show ip interface brief', d => lab._showIpIntBrief(d.key)),
-        C('show ip interface IFACE', (d, v) => lab._showIpInterface(d.key, v[3])),
+        C('show ip interface IFACE', (d, v) => lab._showIpInterface(d.key, v[3]), { ifExists: true }),
         C('show ip route', d => lab._showIpRoute(d.key)),
         C('show ip route A.B.C.D', (d, v) => {
           const r = lab.lookup(d.key, v[3]);
@@ -1674,7 +1904,15 @@
           if (r.type === 'S') return [`Routing entry for ${net}`, `  Known via "static", distance 1, metric 0${r.nh ? '' : ' (connected)'}`, '  Routing Descriptor Blocks:', r.nh ? `  * ${r.nh}` : `  * directly connected, via ${r.iface}`, '      Route metric is 0, traffic share count is 1'];
           return [`Routing entry for ${net}`, `  Known via "connected", distance 0, metric 0 (connected, via interface)`, '  Routing Descriptor Blocks:', `  * directly connected, via ${r.iface}`, '      Route metric is 0, traffic share count is 1'];
         }),
-        C('show interfaces IFACE', (d, v) => lab._showInterface(d.key, v[2])),
+        C('show interfaces IFACE', (d, v) => lab._showInterface(d.key, v[2]), { ifExists: true }),
+        C('show interfaces', d => lab._ifOrder(d).flatMap(n => lab._showInterface(d.key, n))),
+        C('show arp', d => lab._showArp(d.key)),
+        C('show ip arp', d => lab._showArp(d.key)),
+        C('show debugging', d => {
+          const on = [['ipPacket', 'IP packet debugging is on'], ['ipIcmp', 'ICMP packet debugging is on'], ['ipRouting', 'IP routing debugging is on']].filter(([k]) => d.debug[k]).map(([, t]) => '  ' + t);
+          return ['IOSXE Conditional Debug Configs:', '', 'Conditional Debug Global State: Stop', '', '', 'IOSXE Packet Tracing Configs:', '', '', '', '', '',
+            ...(on.length ? ['Generic IP:', ...on] : []), 'Packet Infra debugs:', '', 'Ip Address                                               Port', '------------------------------------------------------|----------'];
+        }),
         C('show crypto ikev2 sa', d => lab._showIkev2Sa(d.key, false)),
         C('show crypto ikev2 sa detailed', d => lab._showIkev2Sa(d.key, true)),
         C('show crypto ikev2 stats', d => lab._showIkev2Stats(d.key)),
@@ -1731,8 +1969,9 @@
         return outp;
       };
       const PING = [
-        ...[...new Set(pingPatterns())].map(p => C(p, pingRun, { argHelp: { 2: '' } })),
-        C('traceroute A.B.C.D', (d, v, n, meta) => { const r = lab._traceroute(d.key, v[1]); Object.assign(meta, { kind: 'trace', dst: v[1], ok: r.path.ok, path: r.path }); return r.lines; }),
+        ...[...new Set(pingPatterns())].map(p => C(p, pingRun, { argHelp: { 1: 'Ping destination address or hostname', 2: '' }, argName: { 1: 'WORD' } })),
+        C('traceroute A.B.C.D', (d, v, n, meta) => { const r = lab._traceroute(d.key, v[1]); Object.assign(meta, { kind: 'trace', dst: v[1], ok: r.path.ok, path: r.path }); return r.lines; },
+          { argHelp: { 1: 'Trace route to destination address or hostname' }, argName: { 1: 'WORD' } }),
       ].map(c => ({ ...c, cfg: false }));
       const misc = [C('terminal length <0-512>', () => []), C('exit', () => []), C('logout', () => [])].map(c => ({ ...c, cfg: false }));
 
@@ -1751,8 +1990,13 @@
         C('copy running-config startup-config', () => ['Destination filename [startup-config]? ', 'Building configuration...', '[OK]']),
         C('debug crypto ikev2', d => { d.debug.ikev2 = true; return ['IKEv2 default debugging is on']; }),
         C('debug crypto ikev2 error', d => { d.debug.err = true; return ['IKEv2 error debugging is on']; }),
-        C('undebug all', d => { d.debug.ikev2 = false; d.debug.err = false; return ['All possible debugging has been turned off']; }),
-        C('no debug all', d => { d.debug.ikev2 = false; d.debug.err = false; return ['All possible debugging has been turned off']; }),
+        C('undebug all', d => { for (const k of Object.keys(d.debug)) d.debug[k] = false; return ['All possible debugging has been turned off']; }),
+        C('no debug all', d => { for (const k of Object.keys(d.debug)) d.debug[k] = false; return ['All possible debugging has been turned off']; }),
+        // `debug ip …` (gre_cml_dataset E3): only locally originated packets are printed; transit traffic is switched in the data plane
+        ...[['packet', 'ipPacket', 'IP packet'], ['icmp', 'ipIcmp', 'ICMP packet'], ['routing', 'ipRouting', 'IP routing']].flatMap(([kw, k, txt]) => [
+          C(`debug ip ${kw}`, d => { d.debug[k] = true; if (k === 'ipRouting') d.rtPrev = lab._rtSnap(d.key); return [`${txt} debugging is on`]; }),
+          C(`undebug ip ${kw}`, d => { d.debug[k] = false; return [`${txt} debugging is off`]; }),
+          C(`no debug ip ${kw}`, d => { d.debug[k] = false; return [`${txt} debugging is off`]; })]),
         C('clear logging', d => { d.logBuf = []; return []; }),
         ...PING, ...SHOW, ...misc,
       ].map(c => ({ ...c, cfg: false }));
@@ -1761,9 +2005,15 @@
         if (!d.ifaces[name]) {
           const k = ifKind(name);
           if (k === 'phys') return [err('                   ^'), err('% Invalid input detected at \'^\' marker.')];
-          d.ifaces[name] = { name, kind: k, shutdown: false, ip: '', mask: '', desc: '', vlan: null, swMode: null, tunnel: k === 'tunnel' ? { source: '', dest: '', mode: 'gre ip', protection: '', lineUp: false } : null,
+          // IOS-XE recycles the descriptor of a deleted tunnel (oldest first): a new Tunnel shows that tunnel's
+          // `State change` times and `Last state info` until its own state changes (gre_cml_dataset E1/E2)
+          const old = k === 'tunnel' && d.idbPool && d.idbPool.length ? d.idbPool.shift() : null;
+          d.ifaces[name] = { name, kind: k, shutdown: false, ip: '', mask: '', desc: '', vlan: null, swMode: null,
+            tunnel: k === 'tunnel' ? { source: '', dest: '', mode: 'gre ip', protection: '', lineUp: false, downAt: old ? old.downAt : lab.now(), upAt: old ? old.upAt : null, lastDownReason: old ? old.lastDownReason : null } : null,
             boot: false, createdAt: lab.now(), cnt: { inP: 0, outP: 0, inB: 0, outB: 0, last: null } };
-          if (k === 'tunnel' || k === 'loopback') lab._log(d.key, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${name}, changed state to ${k === 'loopback' ? 'up' : 'down'}`);
+          // a new Tunnel logs its line protocol going down 1–2 s after it is created (gre_cml_dataset E1/E4/E5)
+          if (k === 'tunnel') { const me = d.ifaces[name]; (lab.laterLogs = lab.laterLogs || []).push({ at: lab.now() + 1500, devKey: d.key, msg: `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${name}, changed state to down`, check: () => d.ifaces[name] === me }); }
+          if (k === 'loopback') { lab._log(d.key, `%LINK-3-UPDOWN: Interface ${name}, changed state to up`); lab._log(d.key, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${name}, changed state to up`); }
         }
         d.mode = 'if'; d.ctx = { iface: name }; return [];
       };
@@ -1802,8 +2052,16 @@
           if (!neg) return ifEnter(d, v[1]);
           const i = d.ifaces[v[1]]; if (!i) return [err('% Interface not found')];
           if (i.kind === 'phys' || i.kind === 'svi') return [err('% Removal of physical interfaces is not permitted')];
+          if (i.kind === 'tunnel') {   // deleted silently (no syslog); its descriptor goes back to the pool
+            const t = i.tunnel, up = lab.lineUp(d.key, i.name);
+            (d.idbPool = d.idbPool || []).push({ upAt: t.upAt || null, downAt: up ? lab.now() : t.downAt, lastDownReason: up ? 'shutdown' : t.lastDownReason });
+          }
+          if (i.kind === 'loopback' && !i.shutdown) {   // a Loopback goes down on removal; a Tunnel is removed silently (E5)
+            lab._log(d.key, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${i.name}, changed state to down`);
+            lab._log(d.key, `%LINK-5-CHANGED: Interface ${i.name}, changed state to administratively down`);
+          }
           delete d.ifaces[v[1]]; return [];
-        }, { no: true }),
+        }, { no: true, ifExistsNeg: true }),
         C('ip route A.B.C.D A.B.C.D IFACE', (d, v, neg) => {
           const [net, mask, ifn] = [v[2], v[3], v[4]];
           if (!isMask(mask) || netOf(net, mask) !== net) return [err('%Inconsistent address and mask')];
@@ -1811,14 +2069,14 @@
           if (neg) { if (i >= 0) d.routes.splice(i, 1); else return [err('%No matching route to delete')]; }
           else if (i < 0) d.routes.push({ net, mask, iface: ifn });
           return [];
-        }, { no: true, argHelp: { 4: 'Interface' } }),
+        }, { no: true, ifExists: true, argHelp: { 4: 'Interface' } }),
         C('ip route A.B.C.D A.B.C.D A.B.C.D', (d, v, neg) => {
           const [net, mask, nh] = [v[2], v[3], v[4]];
           if (!isMask(mask)) return [err('%Inconsistent address and mask')];
           if (netOf(net, mask) !== net) return [err('%Inconsistent address and mask')];
           const i = d.routes.findIndex(r => r.net === net && r.mask === mask && r.nh === nh);
           if (neg) { if (i >= 0) d.routes.splice(i, 1); else return [err('%No matching route to delete')]; }
-          else if (i < 0) d.routes.push({ net, mask, nh });
+          else if (i < 0) { d.routes.push({ net, mask, nh }); lab._arpNextHops(d.key); }
           return [];
         }, { no: true, argHelp: { 2: 'Destination prefix', 3: 'Destination prefix mask', 4: 'Forwarding router\'s address' } }),
         C('ip domain lookup', () => [], { no: true }),
@@ -1850,16 +2108,28 @@
         C('ip address A.B.C.D A.B.C.D', sub((d, v, neg) => {
           const i = ifc(d);
           if (i.kind === 'phys' && i.vlan) return [err('% IP addresses may not be configured on L2 links.')];
+          i.boot = false; i.unset = false;   // `show ip interface brief` Method: manual from now on
           if (neg) { i.ip = ''; i.mask = ''; return []; }
-          if (!isMask(v[3])) return [err(`Bad mask /${v[3]} for address ${v[2]}`)];
+          if (!isMask(v[3])) return [err(`Bad mask 0x${(ipInt(v[3]) >>> 0).toString(16).toUpperCase().padStart(8, '0')} for address ${v[2]}`)];
           for (const o of Object.values(d.ifaces)) if (o !== i && o.ip && (inNet(v[2], o.ip, o.mask) || inNet(o.ip, v[2], v[3]))) return [err(`% ${netOf(v[2], v[3])} overlaps with ${o.name}`)];
           i.ip = v[2]; i.mask = v[3]; return [];
         }), { no: true, argHelp: { 2: 'IP address', 3: 'IP subnet mask' } }),
-        C('ip address', sub((d) => { const i = ifc(d); i.ip = ''; i.mask = ''; return []; }), { no: true, noOnly: true }),
+        C('ip address', sub((d) => { const i = ifc(d); i.ip = ''; i.mask = ''; i.boot = false; return []; }), { no: true, noOnly: true }),
         C('shutdown', sub((d, v, neg) => {
-          const i = ifc(d); const before = lab.lineUp(d.key, i.name); i.shutdown = !neg;
-          if (!neg && before !== false) lab._log(d.key, `%LINK-5-CHANGED: Interface ${i.name}, changed state to administratively down`);
-          if (neg && i.kind !== 'tunnel') lab._log(d.key, `%LINK-3-UPDOWN: Interface ${i.name}, changed state to up`);
+          const i = ifc(d); const wasShut = i.shutdown; const before = lab.lineUp(d.key, i.name); i.shutdown = !neg;
+          if (wasShut === i.shutdown) return [];
+          const LP = st => lab._log(d.key, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${i.name}, changed state to ${st}`);
+          if (!neg) {
+            // IOS-XE (gre_cml_dataset E2): a tunnel logs LINEPROTO down + LINK-5 admin down together; a port logs LINK-5 then LINEPROTO
+            if (i.kind === 'tunnel') { if (before) { LP('down'); i.tunnel.downAt = lab.now(); i.tunnel.lastDownReason = 'shutdown'; } i.tunnel.lineUp = false; }
+            lab._log(d.key, `%LINK-5-CHANGED: Interface ${i.name}, changed state to administratively down`);
+            if (i.kind !== 'tunnel' && before) LP('down');
+            lab._flushArp(d.key, i.name);
+          } else {
+            const up = lab.lineUp(d.key, i.name);
+            if (i.kind === 'tunnel') { if (up) { LP('up'); i.tunnel.lineUp = true; i.tunnel.upAt = lab.now(); } lab._log(d.key, `%LINK-3-UPDOWN: Interface ${i.name}, changed state to up`); }
+            else { lab._log(d.key, `%LINK-3-UPDOWN: Interface ${i.name}, changed state to up`); if (up) LP('up'); lab._arpNextHops(d.key); }
+          }
           return [];
         }), { no: true }),
         C('description LINE', sub((d, v, neg) => { ifc(d).desc = neg ? '' : v.slice(1).join(' '); return []; }), { no: true }),
@@ -1872,13 +2142,44 @@
         C('description', sub((d) => { ifc(d).desc = ''; return []; }), { no: true, noOnly: true }),
         C('switchport access vlan <1-4094>', sub((d, v, neg) => { ifc(d).vlan = neg ? 1 : +v[3]; return []; }), { no: true, when: i => i.kind === 'phys' }),
         C('switchport mode access', sub(() => []), { no: true, when: i => i.kind === 'phys' }),
-        C('tunnel source IFACE', sub((d, v, neg) => { ifc(d).tunnel.source = neg ? '' : v[2]; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel source IFACE', sub((d, v, neg) => {
+          const n = v[2];
+          if (!neg && !d.ifaces[n] && ifKind(n) === 'loopback') {   // IOS-XE auto-creates a missing Loopback named as tunnel source
+            d.ifaces[n] = { name: n, kind: 'loopback', shutdown: false, ip: '', mask: '', desc: '', vlan: null, swMode: null, tunnel: null, boot: false, unset: true, createdAt: lab.now(), cnt: { inP: 0, outP: 0, inB: 0, outB: 0, last: null } };
+            lab._log(d.key, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${n}, changed state to up`); lab._log(d.key, `%LINK-3-UPDOWN: Interface ${n}, changed state to up`);
+          }
+          if (!neg && ifKind(n) === 'tunnel') return [err(`Tunnel source configuration failed on tunnel in mode ${TUN_PROTO[ifc(d).tunnel.mode]} configuring ${ifc(d).ip || 'UNKNOWN'}: tunnel source interface is unacceptable`)];
+          ifc(d).tunnel.source = neg ? '' : n; return [];
+        }), { no: true, when: i => i.kind === 'tunnel' }),
         C('tunnel source A.B.C.D', sub((d, v, neg) => { ifc(d).tunnel.source = neg ? '' : v[2]; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
         C('tunnel source', sub((d) => { ifc(d).tunnel.source = ''; return []; }), { no: true, noOnly: true, when: i => i.kind === 'tunnel' }),
-        C('tunnel destination A.B.C.D', sub((d, v, neg) => { ifc(d).tunnel.dest = neg ? '' : v[2]; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel destination A.B.C.D', sub((d, v, neg) => {
+          const a = v[2], f = +a.split('.')[0];
+          // unspecified, broadcast and multicast destinations are refused and not applied (E5)
+          if (!neg && (a === '0.0.0.0' || a === '255.255.255.255' || (f >= 224 && f <= 239))) return [err(`Tunnel destination configuration failed on tunnel in mode ${TUN_PROTO[ifc(d).tunnel.mode]} configuring ${a}: tunnel destination address specified is invalid`)];
+          ifc(d).tunnel.dest = neg ? '' : a; return [];
+        }), { no: true, when: i => i.kind === 'tunnel', argName: { 2: 'Hostname or A.B.C.D' }, argHelp: { 2: 'ip address or host name' } }),
         C('tunnel destination', sub((d) => { ifc(d).tunnel.dest = ''; return []; }), { no: true, noOnly: true, when: i => i.kind === 'tunnel' }),
         C('tunnel mode ipsec ipv4', sub((d, v, neg) => { ifc(d).tunnel.mode = neg ? 'gre ip' : 'ipsec ipv4'; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
         C('tunnel mode gre ip', sub((d) => { const t = ifc(d).tunnel; t.mode = 'gre ip'; return t.protection ? [{ text: '% Simulator: GRE over IPsec (tunnel protection on a GRE tunnel) is not modelled; this tunnel stays down. Use "tunnel mode ipsec ipv4" for an IPsec VTI.', cls: 'warn' }] : []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        // other point-to-point encapsulations: the line protocol follows the same rules as GRE (E5); data plane is GRE only
+        C('tunnel mode ipip', sub((d, v, neg) => { ifc(d).tunnel.mode = neg ? 'gre ip' : 'ipip'; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel mode ipv6ip', sub((d, v, neg) => { ifc(d).tunnel.mode = neg ? 'gre ip' : 'ipv6ip'; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel mode gre ipv6', sub((d, v, neg) => {
+          if (neg) { ifc(d).tunnel.mode = 'gre ip'; return []; }
+          return ifc(d).shutdown ? [{ text: '% Simulator: GRE over an IPv6 transport is not modelled.', cls: 'warn' }] : [err('Tunnel interface must be shut down before switching between IPv4(transport) tunnel to IPv6(transport) tunnel')];
+        }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel mode gre multipoint', sub((d, v, neg) => {
+          if (neg) { ifc(d).tunnel.mode = 'gre ip'; return []; }
+          return ifc(d).tunnel.dest ? [err(' Tunnel set mode failed. p2mp tunnels cannot have a tunnel destination.')] : [{ text: '% Simulator: multipoint GRE (DMVPN) is not modelled.', cls: 'warn' }];
+        }), { no: true, when: i => i.kind === 'tunnel' }),
+        // GRE options (E5): a key and checksums each add 4 bytes and disable fast tunneling
+        C('tunnel key <0-4294967295>', sub((d, v, neg) => { ifc(d).tunnel.key = neg ? null : +v[2]; return []; }), { no: true, when: i => i.kind === 'tunnel', argHelp: { 2: 'key' } }),
+        C('tunnel key', sub(d => { ifc(d).tunnel.key = null; return []; }), { no: true, noOnly: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel checksum', sub((d, v, neg) => { ifc(d).tunnel.csum = !neg; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('tunnel path-mtu-discovery', sub((d, v, neg) => { ifc(d).tunnel.pmtud = !neg; return []; }), { no: true, when: i => i.kind === 'tunnel' }),
+        C('bandwidth <1-10000000>', sub((d, v, neg) => { ifc(d).bw = neg ? null : +v[1]; return []; }), { no: true, argHelp: { 1: 'Bandwidth in kilobits' } }),
+        C('bandwidth', sub(d => { ifc(d).bw = null; return []; }), { no: true, noOnly: true }),
         // GRE keepalives (Cisco "How GRE Keepalives Work"): default 10 s, 3 retries; 0 = off
         ...['keepalive', 'keepalive <0-32767>', 'keepalive <0-32767> <1-255>'].map(pat => C(pat, sub((d, v, neg) => {
           const t = ifc(d).tunnel, period = v[1] != null ? +v[1] : 10, retries = v[2] != null ? +v[2] : 3;
