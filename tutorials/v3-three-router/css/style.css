@@ -215,6 +215,7 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 #topo .tun-label text.lbl-tun-net { font-family: var(--font-mono); font-size: calc(13px * var(--fs)); font-weight: 500; fill: var(--ink-muted); }
 #topo .lbl-tun { font-family: var(--font-mono); font-size: calc(15px * var(--fs)); font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 #topo .pkt { pointer-events: none; }
+#topo .lbl-drop { font-family: var(--font-mono); font-size: calc(14px * var(--fs)); font-weight: 700; fill: var(--fail); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
 /* triangle layout (GRE lab): the WAN cloud around R2 — outlined with a faint tint, never louder than the tunnels */
 #topo .cloud { fill: var(--tint); stroke: var(--line-subtle); stroke-width: 1.5; }
 #topo .cloud-lbl { font-size: calc(14px * var(--fs)); font-weight: 700; fill: var(--ink-muted); letter-spacing: .06em; }

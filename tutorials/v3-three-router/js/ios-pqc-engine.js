@@ -1770,10 +1770,14 @@
         const tooBig = fwd.hops.find(h => size > this.ipMtu(h.from, h.egress));
         if (tooBig) {
           out.push(Array.from({ length: count }, (_, k) => k % 2 ? '.' : 'M').join(''), `Success rate is 0 percent (0/${count})`);
-          return { lines: out, ok: false, succ: 0, count, path: { fwd: fwd.hops.slice(0, fwd.hops.indexOf(tooBig) + 1), back: [] }, srcIp, lost: count, mtu: { dev: tooBig.from, if: tooBig.egress, mtu: this.ipMtu(tooBig.from, tooBig.egress) } };
+          // the packet stops at the router whose egress is too small (R1 itself for its own tunnel): it never crosses that hop
+          const mtu = { dev: tooBig.from, if: tooBig.egress, mtu: this.ipMtu(tooBig.from, tooBig.egress) };
+          return { lines: out, ok: false, succ: 0, count, path: { fwd: fwd.hops.slice(0, fwd.hops.indexOf(tooBig)), back: [], drop: mtu }, srcIp, lost: count, mtu };
         }
       }
       const back = fwd.ok ? this.forward(fwd.end, srcIp) : { ok: false };
+      // without DF, a packet larger than a hop's IP MTU is fragmented there: two packets cross that hop
+      for (const h of [...fwd.hops, ...(back.hops || [])]) if (size > this.ipMtu(h.from, h.egress)) h.frag = true;
       const ok = fwd.ok && back.ok && (!opts.source || this.owns(devKey, srcIp));
       let lost = 0;
       if (ok) {
@@ -1958,7 +1962,7 @@
         }
         const r = lab._ping(d.key, v[1], opts);
         if (Array.isArray(r)) return r;
-        Object.assign(meta, { kind: 'ping', dst: v[1], ok: r.ok, succ: r.succ, count: r.count, path: r.path, lost: r.lost, src: r.srcIp });
+        Object.assign(meta, { kind: 'ping', dst: v[1], ok: r.ok, succ: r.succ, count: r.count, path: r.path, lost: r.lost, src: r.srcIp, mtu: r.mtu || null });
         return r.lines;
       };
       // every order of the extended options (IOS accepts them in any order)

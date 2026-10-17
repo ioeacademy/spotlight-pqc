@@ -113,6 +113,7 @@ ${callout('warn', '<b>Don\'t route the WAN into the tunnel.</b> If the route to 
 ${cfg('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Loopback1 size 1476 df-bit', 'ping 10.3.3.3 source Loopback1 size 1477 df-bit'], 'test')}
 ${out(['Packet sent with the DF bit set', 'M.M.M', 'Success rate is 0 percent (0/5)'])}
 <p><b>M</b> means "fragmentation needed": the packet is too big for the tunnel and DF forbids splitting it. Without DF the router fragments it: it gets through, but every big packet becomes two, which costs CPU and throughput, and many applications set DF anyway.</p>
+<p>Watch the topology: with DF the packet never leaves R1, and a ✕ marks Tunnel0 with its MTU, because R1 itself refuses to send it. Without DF (<code>ping 10.3.3.3 source Loopback1 size 1477</code>) two packets cross the tunnel, one behind the other: the two fragments.</p>
 <p>Cisco's recommendation is to lower the tunnel MTU and clamp TCP, on <b>both</b> routers:</p>
 ${cfg('r1', ['interface Tunnel0', ' ip mtu 1400', ' ip tcp adjust-mss 1360'])}
 ${cfg('r3', ['interface Tunnel0', ' ip mtu 1400', ' ip tcp adjust-mss 1360'])}

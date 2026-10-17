@@ -618,14 +618,27 @@
       } else {
         pathEl = el('path', { d: `M${PT[h.from][0]},${PT[h.from][1] - (TRI ? 20 : 0)} L${PT[h.to][0]},${PT[h.to][1] - (TRI ? 20 : 0)}`, fill: 'none', stroke: 'none' }, gPkt);
       }
-      await movePacket(pathEl, reverse, color, h.via === 'tunnel');
+      // fragmented on this hop (bigger than its IP MTU, no DF): two packets, one right behind the other
+      if (h.frag) await Promise.all([movePacket(pathEl, reverse, color, h.via === 'tunnel'), new Promise(r => setTimeout(r, 160)).then(() => movePacket(pathEl, reverse, color, h.via === 'tunnel'))]);
+      else await movePacket(pathEl, reverse, color, h.via === 'tunnel');
       if (h.via !== 'tunnel') pathEl.remove();
     }
     if (!meta.ok) {
-      const at = meta.path.fwd.length ? meta.path.fwd[meta.path.fwd.length - 1].to : null;
-      const [x, yy] = PT[at || Object.keys(PT)[0]];
-      const xMark = el('text', { x: x, y: yy - 34, 'text-anchor': 'middle', 'font-size': 22, fill: 'var(--fail)', class: 'pkt' }, gPkt); xMark.textContent = '✕';
-      setTimeout(() => xMark.remove(), 900);
+      const drop = meta.path.drop;
+      const at = drop ? drop.dev : meta.path.fwd.length ? meta.path.fwd[meta.path.fwd.length - 1].to : null;
+      const k0 = at || Object.keys(PT)[0], [x0, yy] = PT[k0];
+      // triangle: a spoke's labels sit above it, so the mark goes beside it, on the triangle's inner side
+      const side = TRI && k0 !== 'r2' ? (x0 < PT.r2[0] ? 1 : -1) : 0, x = x0 + side * 62;
+      const xMark = el('text', { x, y: side ? yy - 2 : yy - 34, 'text-anchor': 'middle', 'font-size': 22, fill: 'var(--fail)', class: 'pkt' }, gPkt); xMark.textContent = '✕';
+      // DF set and too big: dropped before the hop, and "fragmentation needed" (M) goes back to the sender
+      const note = drop ? el('text', side ? { x: x + side * 14, y: yy - 30, 'text-anchor': side > 0 ? 'start' : 'end', class: 'pkt lbl-drop' } : { x, y: yy - 58, 'text-anchor': 'middle', class: 'pkt lbl-drop' }, gPkt) : null;
+      if (note) note.textContent = `M · ${ifShort(drop.if)} MTU ${drop.mtu}`;
+      setTimeout(() => { xMark.remove(); if (note) note.remove(); }, drop ? 1800 : 900);
+      if (drop) for (const h of [...meta.path.fwd].reverse()) {
+        const pe = el('path', { d: `M${PT[h.to][0]},${PT[h.to][1] - (TRI ? 20 : 0)} L${PT[h.from][0]},${PT[h.from][1] - (TRI ? 20 : 0)}`, fill: 'none', stroke: 'none' }, gPkt);
+        if (h.via === 'tunnel') { const tp = document.getElementById('tun-' + cssId(h.key)); if (tp) { await movePacket(tp, tp.getAttribute('data-from') === h.from, 'var(--fail)', false); pe.remove(); continue; } }
+        await movePacket(pe, false, 'var(--fail)', false); pe.remove();
+      }
     }
   }
   function movePacket(pathEl, reverse, color, esp) {
