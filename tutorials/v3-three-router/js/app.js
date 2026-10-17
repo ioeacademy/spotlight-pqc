@@ -515,8 +515,13 @@
     for (const g of lab.greTunnels()) {
       const H = k => lab.dev(k).hostname, tu = ifShort(g.a.if);
       if (!g.b) { items.push({ key: g.key, a: g.a.dev, b: g.owner, ends: [[g.a.dev, g.a.if]], kind: g.upA ? 'gre' : 'fail', st: g.upA ? 'UP' : 'DOWN', label: `${tu} · GRE · no tunnel on ${H(g.owner)}` }); continue; }
-      const up = g.upA && g.upB;
-      items.push({ key: g.key, a: g.a.dev, b: g.b.dev, ends: [[g.a.dev, g.a.if], [g.b.dev, g.b.if]], kind: up ? 'gre' : 'fail', st: up ? 'UP' : 'DOWN', label: `${tu} · GRE · not encrypted` });
+      const ends = [[g.a.dev, g.a.if], [g.b.dev, g.b.if]];
+      if (g.upA && g.upB) { items.push({ key: g.key, a: g.a.dev, b: g.b.dev, ends, kind: 'gre', st: 'UP', label: `${tu} · GRE · not encrypted` }); continue; }
+      if (!g.upA && !g.upB) { items.push({ key: g.key, a: g.a.dev, b: g.b.dev, ends, kind: 'fail', st: 'DOWN', label: `${tu} · GRE · both ends down` }); continue; }
+      // one end down, the other still up/up (no keepalive to notice): it keeps sending GRE packets that are dropped
+      const [upE, dnE, why] = g.upA ? [g.a, g.b, g.reasonB] : [g.b, g.a, g.reasonA];
+      items.push({ key: g.key, a: g.a.dev, b: g.b.dev, ends, kind: 'fail', st: `${H(upE.dev)} UP`, split: dnE.dev,
+        label: `${H(dnE.dev)} ${ifShort(dnE.if)} ${why === 'shutdown' ? 'admin down' : 'down'} · traffic dropped` });
     }
     const fs = fsScale();
     for (const it of items) {
@@ -524,7 +529,14 @@
       const { d, apex, at } = tp ? { d: tp.d, apex: tp.badge, at: null } : arcPath(it.a, it.b);
       const g = el('g', { 'data-key': it.key, role: 'button', tabindex: 0, 'aria-label': `Inspect tunnel: ${it.label}` }, gTun);
       el('path', { class: 'tun-hit', d }, g);
-      el('path', { class: 'tun ' + it.kind, d, id: 'tun-' + cssId(it.key), 'data-from': tp ? tp.from : it.a }, g);
+      if (it.split) {
+        // half and half: the up end's GRE line, the down end's half red and dashed (clipped at the badge)
+        const right = PT[it.split][0] > apex[0], cid = 'clip-' + cssId(it.key), cd = cid + '-d', defs = el('defs', {}, g);
+        el('rect', { x: right ? -2000 : apex[0], y: -2000, width: right ? apex[0] + 2000 : 4000, height: 4000 }, el('clipPath', { id: cid }, defs));
+        el('rect', { x: right ? apex[0] : -2000, y: -2000, width: right ? 4000 : apex[0] + 2000, height: 4000 }, el('clipPath', { id: cd }, defs));
+        el('path', { class: 'tun gre', d, id: 'tun-' + cssId(it.key), 'data-from': tp ? tp.from : it.a, 'clip-path': `url(#${cid})` }, g);
+        el('path', { class: 'tun fail', d, 'clip-path': `url(#${cd})` }, g);
+      } else el('path', { class: 'tun ' + it.kind, d, id: 'tun-' + cssId(it.key), 'data-from': tp ? tp.from : it.a }, g);
       const lg = el('g', { class: 'tun-label' }, g);
       const full = `${it.st} · ${it.label}`;
       const w = full.length * 8.6 * fs + 34;
@@ -632,8 +644,10 @@
       const R = { source: 'the tunnel source interface is down or has no IP address', destination: 'no tunnel destination is configured', route: 'there is no route to the tunnel destination', recursive: 'the route to the tunnel destination points into the tunnel itself (recursive routing, %TUN-5-RECURDOWN)', keepalive: 'keepalives are not answered', protection: 'GRE over IPsec (tunnel protection on a GRE tunnel) is not modelled in this simulator', shutdown: 'the interface is shut down' };
       const end = (dv, ifn, up, why) => `<li><b>${esc(H(dv))} ${esc(ifn)}</b>: line protocol <b>${up ? 'up' : 'down'}</b>${!up && why ? ` — ${esc(R[why] || why)}` : ''}</li>`;
       $('#modal-title').textContent = `GRE tunnel ${H(gt.a.dev)} ${gt.a.if}${gt.b ? ` ⇄ ${H(gt.b.dev)} ${gt.b.if}` : ''}`;
-      body.innerHTML = `<p><span class="status-chip">${gt.upA && (!gt.b || gt.upB) ? 'UP · GRE' : 'DOWN · GRE'}</span></p>
+      const half = gt.b && gt.upA !== gt.upB, upD = half ? (gt.upA ? gt.a.dev : gt.b.dev) : null, dnD = half ? (gt.upA ? gt.b.dev : gt.a.dev) : null;
+      body.innerHTML = `<p><span class="status-chip">${gt.upA && (!gt.b || gt.upB) ? 'UP · GRE' : half ? `${esc(H(upD))} UP · ${esc(H(dnD))} DOWN · GRE` : 'DOWN · GRE'}</span></p>
         <ul>${end(gt.a.dev, gt.a.if, gt.upA, gt.reasonA)}${gt.b ? end(gt.b.dev, gt.b.if, gt.upB, gt.reasonB) : ''}</ul>
+        ${half ? `<div class="err-box"><b>${esc(H(upD))} still thinks the tunnel is up.</b> Without <code>keepalive</code>, a GRE tunnel's line protocol depends only on its own source and a route to the destination, so ${esc(H(upD))} stays up/up and keeps sending GRE packets that ${esc(H(dnD))} drops. With <code>keepalive</code> on ${esc(H(upD))}, unanswered keepalives would bring its tunnel down too (default every 10 s, down after 3 misses).</div>` : ''}
         ${gt.b ? '' : `<div class="err-box"><b>No tunnel on ${esc(H(gt.owner))}.</b> ${esc(H(gt.a.dev))}'s tunnel can be up/up — its destination is routable — but ${esc(H(gt.owner))} has no tunnel whose source and destination mirror it, so it drops the GRE packets. Without <code>keepalive</code>, IOS does not notice.</div>`}
         <p><b>GRE is not encrypted.</b> It only adds a GRE header and a new IP header; anyone on the path can read the original packets. To encrypt, use an IPsec VTI (<code>tunnel mode ipsec ipv4</code> + <code>tunnel protection ipsec profile …</code>).</p>
         <p class="src">Line protocol rules: Cisco TAC <i>Determine What Impacts GRE Tunnel Interface States</i> and <i>How GRE Keepalives Work</i>.</p>`;
