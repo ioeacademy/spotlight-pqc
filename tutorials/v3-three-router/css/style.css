@@ -71,6 +71,19 @@ kbd { border-bottom-width: 2px; }
 
 /* ── tutorial: header, step navigator ── */
 .tut-head { padding: var(--space-3) var(--space-4) var(--space-3); border-bottom: 1px solid var(--line-subtle); }
+/* collapse toggle, and the collapsed pane: a column of step numbers (double-click = Show Me) */
+.tut-head { position: relative; }
+.tut-collapse { position: absolute; top: 8px; right: 10px; font: inherit; font-size: 15px; line-height: 1; width: 26px; height: 24px; border-radius: var(--radius-control); border: 1px solid var(--line-subtle); background: var(--surface); color: var(--ink); cursor: pointer; }
+.tut-collapse:hover, .tut-collapse:focus-visible { border-color: var(--action); color: var(--accent-text); outline: none; }
+.tutorial.collapsed { width: 60px !important; min-width: 60px; }
+.tutorial.collapsed .tut-kicker, .tutorial.collapsed .progress, .tutorial.collapsed #steps { display: none; }
+.tutorial.collapsed .tut-head { padding: 40px 0 var(--space-3); border-bottom: 0; flex: 1; overflow-y: auto; }
+.tutorial.collapsed .tut-collapse { left: 50%; right: auto; transform: translateX(-50%); }
+.tutorial.collapsed .step-nav { flex-direction: column; flex-wrap: nowrap; align-items: center; gap: 10px; margin: 0; }
+.tutorial.collapsed + .divider { display: none; }
+.step-nav button.running { border: 2px solid var(--action); animation: step-busy 1s ease-in-out infinite; }
+@keyframes step-busy { 50% { border-color: transparent; } }
+@media (prefers-reduced-motion: reduce) { .step-nav button.running { animation: none; } }
 .tut-kicker { font-size: 12px; line-height: 16px; color: var(--muted); margin-bottom: var(--space-2); }
 .progress { height: 4px; border-radius: var(--radius-pill); background: var(--line-subtle); overflow: hidden; }
 .progress-fill { height: 100%; width: 0; background: var(--action); transition: width .4s; }
@@ -296,6 +309,10 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
   .split { flex: none; flex-direction: column; }
   .tutorial { width: 100% !important; max-width: none; min-width: 0; height: 60vh; flex: none; border-bottom: 5px solid var(--term-chrome); }
   .divider { display: none; }
+  .tutorial.collapsed { width: 100% !important; height: auto; min-width: 0; }
+  .tutorial.collapsed .tut-head { padding: var(--space-2) 44px var(--space-2) var(--space-3); }
+  .tutorial.collapsed .tut-collapse { left: auto; right: 10px; transform: none; }
+  .tutorial.collapsed .step-nav { flex-direction: row; flex-wrap: wrap; }
   .labpane { flex: none; height: 88vh; }
   .topo-wrap { height: 230px !important; }
   .topo-hint { display: none; }

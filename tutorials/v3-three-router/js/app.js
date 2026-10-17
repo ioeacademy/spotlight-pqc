@@ -262,9 +262,28 @@
       const li = document.createElement('li'); const b = document.createElement('button');
       b.type = 'button'; b.textContent = i + 1; b.title = `${i + 1}. ${s.title}`; b.setAttribute('aria-label', `Step ${i + 1}: ${s.title}`); b.dataset.status = 'locked';
       b.addEventListener('click', () => { toggleStep(i, true); const el = $('#step-' + i); el.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' }); });
+      // collapsed pane: a double click on the number does what the step's own button does (Show Me, or Continue)
+      b.addEventListener('dblclick', () => { if (!collapsed()) return; if (STEPS[i].run.length) showMe(i); else complete(i); });
       li.appendChild(b); nav.appendChild(li);
     });
     $('.tut-head').appendChild(nav);
+    // collapse the instructions to a column of step numbers
+    const tg = document.createElement('button');
+    tg.type = 'button'; tg.className = 'tut-collapse'; tg.id = 'tut-collapse';
+    tg.addEventListener('click', () => setCollapsed(!collapsed(), true));
+    $('.tut-head').appendChild(tg);
+    let saved = false; try { saved = localStorage.getItem('spq-tut-collapsed') === '1'; } catch (e) { }
+    setCollapsed(saved, false);
+  }
+  const collapsed = () => $('#tutorial').classList.contains('collapsed');
+  function setCollapsed(on, save) {
+    $('#tutorial').classList.toggle('collapsed', on);
+    const tg = $('#tut-collapse'), lbl = on ? 'Expand the instructions' : 'Collapse the instructions to the step numbers';
+    tg.textContent = on ? '»' : '«'; tg.title = lbl; tg.setAttribute('aria-label', lbl); tg.setAttribute('aria-expanded', !on);
+    document.querySelectorAll('#step-nav button').forEach((b, i) => {
+      const s = STEPS[i]; b.title = on ? `${i + 1}. ${s.title} · double-click: ${s.run.length ? 'Show Me' : 'continue'}` : `${i + 1}. ${s.title}`;
+    });
+    if (save) try { localStorage.setItem('spq-tut-collapsed', on ? '1' : '0'); } catch (e) { }
   }
   function syncStepNav() {
     document.querySelectorAll('#step-nav button').forEach((b, i) => { b.dataset.status = done.has(i) ? 'done' : i === cur ? 'active' : 'locked'; b.setAttribute('aria-current', i === cur); });
@@ -307,7 +326,8 @@
   async function showMe(i) {
     if (busy) return;
     const s = STEPS[i]; busy = true; usedShowMe.add(i);
-    const btn = document.querySelector(`[data-showme="${i}"]`); btn.disabled = true; btn.textContent = '⏳ Typing…';
+    const btn = document.querySelector(`[data-showme="${i}"]`), nb = document.querySelectorAll('#step-nav button')[i];
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Typing…'; } if (nb) nb.classList.add('running');
     let prev = null;
     for (const [k, cmd] of runOf(s)) {
       const d = lab.dev(k);
@@ -318,7 +338,7 @@
       if (lab.dev(k).mode === 'priv' && cmd === 'enable') { prev = k; continue; }
       await typeCmd(k, cmd); prev = k;
     }
-    btn.textContent = '▶ Show Me again'; btn.disabled = false; busy = false;
+    if (btn) { btn.textContent = '▶ Show Me again'; btn.disabled = false; } if (nb) nb.classList.remove('running'); busy = false;
     T[activeDev].inp.focus({ preventScroll: true });
   }
   /* ── per-snippet ▶: run one config snippet on its router ── */
