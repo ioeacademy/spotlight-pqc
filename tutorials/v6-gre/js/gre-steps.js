@@ -16,8 +16,8 @@
   // a GRE tunnel on `dev` from its WAN address towards `peer`, with an address in the tunnel subnet
   const greTo = (lab, dev, peer) => Object.values(lab.dev(dev).ifaces).find(i => i.kind === 'tunnel' && i.tunnel.mode === 'gre ip' && i.tunnel.dest === peer && i.ip);
 
-  const T1 = ['configure terminal', 'interface Tunnel0', ' ip address 192.168.100.1 255.255.255.252', ' tunnel source GigabitEthernet0/0/0', ' tunnel destination 10.0.23.2', 'end'];
-  const T3 = ['configure terminal', 'interface Tunnel0', ' ip address 192.168.100.2 255.255.255.252', ' tunnel source GigabitEthernet0/0/0', ' tunnel destination 10.0.12.1', 'end'];
+  const T1 = ['configure terminal', 'interface Tunnel0', ' ip address 192.168.100.1 255.255.255.252', ' tunnel source GigabitEthernet0/0/0', ' tunnel destination 192.0.23.2', 'end'];
+  const T3 = ['configure terminal', 'interface Tunnel0', ' ip address 192.168.100.2 255.255.255.252', ' tunnel source GigabitEthernet0/0/0', ' tunnel destination 192.0.12.1', 'end'];
   const shown = l => l.slice(1, -1);
 
   const STEPS = [
@@ -28,27 +28,28 @@ ${EDU_NOTICE}
 <p>R1 and R3 each have a LAN (a loopback). Between them sits R2, the "WAN": it knows the WAN subnets but <b>nothing about the LANs</b>. A <b>GRE tunnel</b> joins R1 and R3 directly: it wraps each LAN packet in a new IP packet addressed from R1's WAN address to R3's, so R2 only ever sees WAN addresses.</p>
 <table class="t mono">
 <tr><th></th><th>Interface</th><th>Address</th></tr>
-<tr><td>R1</td><td>Gi0/0/0 (WAN)</td><td>10.0.12.1/24</td></tr>
+<tr><td>R1</td><td>Gi0/0/0 (WAN)</td><td>192.0.12.1/30</td></tr>
 <tr><td>R1</td><td>Loopback1 (LAN)</td><td>10.1.1.1/24</td></tr>
-<tr><td>R2</td><td>Gi0/0/0 / Gi0/0/1</td><td>10.0.12.2 / 10.0.23.1</td></tr>
-<tr><td>R3</td><td>Gi0/0/0 (WAN)</td><td>10.0.23.2/24</td></tr>
+<tr><td>R2</td><td>Gi0/0/0 / Gi0/0/1</td><td>192.0.12.2/30 / 192.0.23.1/30</td></tr>
+<tr><td>R3</td><td>Gi0/0/0 (WAN)</td><td>192.0.23.2/30</td></tr>
 <tr><td>R3</td><td>Loopback1 (LAN)</td><td>10.3.3.3/24</td></tr>
 <tr><td>Tunnel0</td><td>GRE/IP</td><td>192.168.100.1 (R1) ⇄ .2 (R3), /30</td></tr>
 </table>
+<p>The WAN links use <b>public-style</b> addresses, as an Internet link would, each a /30 with one address per end. The third octet names the link (<b>12</b> = R1–R2, <b>23</b> = R2–R3) so they are easy to remember. These are lab addresses only: 192.0.12.0 and 192.0.23.0 belong to real networks, so the ranges <a href="https://www.rfc-editor.org/rfc/rfc5737" target="_blank" rel="noopener">RFC 5737</a> reserves for examples (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) are the right choice outside a closed lab. The LANs and the tunnel use private <a href="https://www.rfc-editor.org/rfc/rfc1918" target="_blank" rel="noopener">RFC 1918</a> addresses, which the Internet does not route: that is why they need the tunnel.</p>
 ${callout('info', 'Type commands in the consoles on the right (<kbd>?</kbd> for help, <kbd>Tab</kbd> to complete), or use <b>▶</b> on a snippet and <b>Show Me</b>. Each step checks what the network actually does.')}`,
       run: [], validate: () => true, hints: [],
     },
     {
       id: 'g-wan', title: 'Make the WAN work', part: 'base', devices: ['r1', 'r3'],
       html: `
-<p>The tunnel runs <b>between the WAN addresses</b>, so first R1 must reach 10.0.23.2 and R3 must reach 10.0.12.1. R2 already knows both WAN subnets; the spokes need a route through it:</p>
-${cfg('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end'])}
-${cfg('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end'])}
-${cfg('r1', ['ping 10.0.23.2'], 'test')}
-<div class="goal">Goal: R1 can ping R3's WAN address 10.0.23.2.</div>`,
-      run: [['r1', 'enable'], ...runOf('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end']), ['r3', 'enable'], ...runOf('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end']), ['r1', 'ping 10.0.23.2']],
-      validate: ctx => pingOk(ctx, 'r1', '10.0.23.2'),
-      hints: [{ when: (d, c, r, lab) => d === 'r1' && /^ping 10\.0\.23\.2/.test(c) && !lab.cmdLog.slice(-1)[0].meta.succ, text: 'Both directions need a route: R1 towards 10.0.23.0/24 <i>and</i> R3 back towards 10.0.12.0/24.' }],
+<p>The tunnel runs <b>between the WAN addresses</b>, so first R1 must reach 192.0.23.2 and R3 must reach 192.0.12.1. R2 already knows both WAN subnets; the spokes need a route through it:</p>
+${cfg('r1', ['configure terminal', 'ip route 192.0.23.0 255.255.255.252 192.0.12.2', 'end'])}
+${cfg('r3', ['configure terminal', 'ip route 192.0.12.0 255.255.255.252 192.0.23.1', 'end'])}
+${cfg('r1', ['ping 192.0.23.2'], 'test')}
+<div class="goal">Goal: R1 can ping R3's WAN address 192.0.23.2.</div>`,
+      run: [['r1', 'enable'], ...runOf('r1', ['configure terminal', 'ip route 192.0.23.0 255.255.255.252 192.0.12.2', 'end']), ['r3', 'enable'], ...runOf('r3', ['configure terminal', 'ip route 192.0.12.0 255.255.255.252 192.0.23.1', 'end']), ['r1', 'ping 192.0.23.2']],
+      validate: ctx => pingOk(ctx, 'r1', '192.0.23.2'),
+      hints: [{ when: (d, c, r, lab) => d === 'r1' && /^ping 192\.0\.23\.2/.test(c) && !lab.cmdLog.slice(-1)[0].meta.succ, text: 'Both directions need a route: R1 towards 192.0.23.0/30 <i>and</i> R3 back towards 192.0.12.0/30.' }],
     },
     {
       id: 'g-r1', title: 'Create the tunnel on R1', part: 'base', devices: ['r1'],
@@ -57,16 +58,16 @@ ${cfg('r1', ['ping 10.0.23.2'], 'test')}
 ${cfg('r1', shown(T1))}
 <table class="t">
 <tr><td><code>ip address 192.168.100.1 …252</code></td><td>The tunnel's own subnet (/30: two addresses, one per end).</td></tr>
-<tr><td><code>tunnel source Gi0/0/0</code></td><td>Outer packets leave from R1's WAN address, 10.0.12.1.</td></tr>
-<tr><td><code>tunnel destination 10.0.23.2</code></td><td>…and are sent to R3's WAN address.</td></tr>
+<tr><td><code>tunnel source Gi0/0/0</code></td><td>Outer packets leave from R1's WAN address, 192.0.12.1.</td></tr>
+<tr><td><code>tunnel destination 192.0.23.2</code></td><td>…and are sent to R3's WAN address.</td></tr>
 </table>
 ${cfg('r1', ['show ip interface brief | include Tunnel', 'show interfaces Tunnel0 | include line protocol|Tunnel protocol|Keepalive'], 'check')}
 ${callout('warn', '<b>Surprise:</b> Tunnel0 is already <b>up/up</b>, although R3 has no tunnel yet. Cisco: a GRE tunnel comes up as soon as its source is up and its destination is <i>routable</i>. Without keepalives it cannot know whether anything is listening at the far end.')}
-<div class="goal">Goal: R1 has a GRE Tunnel0 towards 10.0.23.2, and you checked its state.</div>`,
+<div class="goal">Goal: R1 has a GRE Tunnel0 towards 192.0.23.2, and you checked its state.</div>`,
       run: [...runOf('r1', T1), ['r1', 'show ip interface brief | include Tunnel'], ['r1', 'show interfaces Tunnel0 | include line protocol|Tunnel protocol|Keepalive']],
-      validate: ctx => !!greTo(ctx.lab, 'r1', '10.0.23.2') && since(ctx, 'r1', e => /^show (ip interface brief|interfaces)/.test(e.canon)),
+      validate: ctx => !!greTo(ctx.lab, 'r1', '192.0.23.2') && since(ctx, 'r1', e => /^show (ip interface brief|interfaces)/.test(e.canon)),
       hints: [
-        { when: (d, c) => d === 'r1' && /^tunnel destination 10\.0\.12\.2/.test(c), text: 'The tunnel ends on <b>R3</b> (10.0.23.2). R2 only carries the outer packets.' },
+        { when: (d, c) => d === 'r1' && /^tunnel destination 192\.0\.12\.2/.test(c), text: 'The tunnel ends on <b>R3</b> (192.0.23.2). R2 only carries the outer packets.' },
         { when: (d, c) => d === 'r1' && /^tunnel mode ipsec/.test(c), text: 'That turns it into an IPsec VTI. For this lab keep GRE: <code>tunnel mode gre ip</code> (or <code>no tunnel mode</code>).' },
       ],
     },
@@ -81,8 +82,8 @@ ${callout('info', 'The topology now shows the tunnel as a dotted arc: <b>GRE · 
       run: [...runOf('r3', ['enable', ...T3]), ['r1', 'ping 192.168.100.2']],
       validate: ctx => pingOk(ctx, 'r1', '192.168.100.2', true),
       hints: [
-        { when: (d, c) => d === 'r3' && /^tunnel destination 10\.0\.23\./.test(c), text: 'On R3 the destination is R1\'s WAN address, <code>10.0.12.1</code>.' },
-        { when: (d, c, r, lab) => d === 'r1' && /^ping 192\.168\.100\.2/.test(c) && !lab.cmdLog.slice(-1)[0].meta.succ && !greTo(lab, 'r3', '10.0.12.1'), text: 'R3 needs its own Tunnel0 whose source and destination mirror R1\'s.' },
+        { when: (d, c) => d === 'r3' && /^tunnel destination 192\.0\.23\./.test(c), text: 'On R3 the destination is R1\'s WAN address, <code>192.0.12.1</code>.' },
+        { when: (d, c, r, lab) => d === 'r1' && /^ping 192\.168\.100\.2/.test(c) && !lab.cmdLog.slice(-1)[0].meta.succ && !greTo(lab, 'r3', '192.0.12.1'), text: 'R3 needs its own Tunnel0 whose source and destination mirror R1\'s.' },
       ],
     },
     {
@@ -95,7 +96,7 @@ ${cfg('r1', ['ping 10.3.3.3 source Loopback1', 'traceroute 10.3.3.3'], 'test')}
 ${out(['  1 192.168.100.2 3 msec *  2 msec'])}
 <p>The traceroute shows <b>one hop</b>, straight to R3: R2 is invisible, because the LAN packets travel inside GRE. R2 never learned a route to 10.1.1.0 or 10.3.3.0, and it doesn't need one.</p>
 <p>The hop is listed as <code>192.168.100.2</code>, R3's tunnel address, not 10.3.3.3: a router answers a traceroute from the interface it uses to reach the sender, and R3 reaches R1 through Tunnel0. The <code>*</code> in the middle is normal: IOS rate-limits the ICMP replies, so one of the three probes goes unanswered.</p>
-${callout('warn', '<b>Don\'t route the WAN into the tunnel.</b> If the route to the tunnel destination (10.0.23.2) pointed into Tunnel0, the tunnel would carry itself: IOS logs <code>%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing</code> and the tunnel goes down. Try it with <code>ip route 10.0.23.2 255.255.255.255 Tunnel0</code>, then remove it.')}
+${callout('warn', '<b>Don\'t route the WAN into the tunnel.</b> If the route to the tunnel destination (192.0.23.2) pointed into Tunnel0, the tunnel would carry itself: IOS logs <code>%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing</code> and the tunnel goes down. Try it with <code>ip route 192.0.23.2 255.255.255.255 Tunnel0</code>, then remove it.')}
 <div class="goal">Goal: R1 pings 10.3.3.3 from its LAN (source Loopback1), through the tunnel.</div>`,
       run: [...runOf('r1', ['configure terminal', 'ip route 10.3.3.0 255.255.255.0 192.168.100.2', 'end']), ...runOf('r3', ['configure terminal', 'ip route 10.1.1.0 255.255.255.0 192.168.100.1', 'end']), ['r1', 'ping 10.3.3.3 source Loopback1'], ['r1', 'traceroute 10.3.3.3']],
       validate: ctx => since(ctx, 'r1', e => e.meta && e.meta.kind === 'ping' && e.meta.dst === '10.3.3.3' && e.meta.succ > 0 && e.meta.src === '10.1.1.1' && e.meta.path && e.meta.path.fwd.some(h => h.via === 'tunnel')),
@@ -125,7 +126,7 @@ ${cfg('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Lo
         ...runOf('r1', ['configure terminal', 'interface Tunnel0', 'ip mtu 1400', 'ip tcp adjust-mss 1360', 'end']),
         ...runOf('r3', ['configure terminal', 'interface Tunnel0', 'ip mtu 1400', 'ip tcp adjust-mss 1360', 'end']),
         ...runOf('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Loopback1 size 1400 df-bit', 'ping 10.3.3.3 source Loopback1 size 1401 df-bit'])],
-      validate: ctx => ['r1', 'r3'].every(k => { const t = greTo(ctx.lab, k, k === 'r1' ? '10.0.23.2' : '10.0.12.1'); return t && t.ipMtu && t.ipMtu <= 1400 && t.mss && t.mss <= t.ipMtu - 40; })
+      validate: ctx => ['r1', 'r3'].every(k => { const t = greTo(ctx.lab, k, k === 'r1' ? '192.0.23.2' : '192.0.12.1'); return t && t.ipMtu && t.ipMtu <= 1400 && t.mss && t.mss <= t.ipMtu - 40; })
         && since(ctx, 'r1', e => e.meta && e.meta.kind === 'ping' && / df-bit/.test(e.canon)),
       hints: [
         { when: (d, c) => /^ip tcp adjust-mss (\d+)/.test(c) && +/^ip tcp adjust-mss (\d+)/.exec(c)[1] > 1360, text: 'The MSS is the TCP payload: tunnel MTU minus 40 bytes of IP and TCP headers. With <code>ip mtu 1400</code> that is <code>1360</code>.' },
@@ -144,7 +145,7 @@ ${cfg('r1', ['show ip interface Tunnel0 | include MTU', 'ping 10.3.3.3 source Lo
 <tr><td>A route change takes a few seconds to move the tunnel</td><td>IOS XE re-checks a GRE tunnel's line protocol about every 10 seconds after a route or source-address change; its own commands (<code>shutdown</code>, <code>tunnel destination</code>) act at once.</td></tr>
 <tr><td><code>M.M.M</code> above 1476 bytes</td><td>GRE adds 24 bytes; <code>ip mtu 1400</code> + <code>ip tcp adjust-mss 1360</code> keep packets from needing fragmentation.</td></tr>
 </table>
-${callout('tip', '<b>Try recursive routing.</b> On R1: <code>ip route 10.0.23.2 255.255.255.255 192.168.100.2</code> sends the tunnel\'s own destination into the tunnel. Watch <code>%ADJ-5-PARENT</code>, then <code>%TUN-5-RECURDOWN</code>: IOS shuts the tunnel for a minute, brings it back and shuts it again while the route remains. Remove the route with <code>no ip route …</code>.')}
+${callout('tip', '<b>Try recursive routing.</b> On R1: <code>ip route 192.0.23.2 255.255.255.255 192.168.100.2</code> sends the tunnel\'s own destination into the tunnel. Watch <code>%ADJ-5-PARENT</code>, then <code>%TUN-5-RECURDOWN</code>: IOS shuts the tunnel for a minute, brings it back and shuts it again while the route remains. Remove the route with <code>no ip route …</code>.')}
 ${callout('tip', '<b>Try keepalives.</b> On R1: <code>interface Tunnel0</code> → <code>keepalive 2 2</code>. Then shut Tunnel0 on R3: after two missed keepalives R1\'s tunnel goes down by itself (' + KA + ').')}
 ${callout('warn', '<b>GRE is not encrypted.</b> Anyone on the WAN can read the LAN packets. To encrypt them, turn the tunnel into an IPsec VTI: the <a href="../v5-quickstart/?track=classic">Classic VPN quick lab</a> builds one, and the PQC labs make it quantum-safe.')}`,
       run: [], validate: () => true, hints: [],
