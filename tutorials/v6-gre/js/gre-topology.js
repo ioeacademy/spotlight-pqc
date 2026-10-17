@@ -1,10 +1,11 @@
-/* GRE quick lab topology (same as the Packet Tracer lab):
+/* GRE quick lab topology (same as the Packet Tracer lab), drawn as a triangle with R2 in a WAN cloud:
      R1 (Spoke-1) ──10.0.12.0/24── R2 (Hub/Transit) ──10.0.23.0/24── R3 (Spoke-2)
      Gi0/0/0 .1             .2 Gi0/0/0   Gi0/0/1 .1             .2 Gi0/0/0
      LANs: R1 Loopback1 10.1.1.1/24, R3 Loopback1 10.3.3.3/24
      Tunnel0 (GRE/IP) 192.168.100.0/30: R1 .1 (src 10.0.12.1) ⇄ R3 .2 (src 10.0.23.2)          */
 (function (root) {
   const TOPOLOGY = {
+    layout: 'triangle',   // hub R2 on top inside a WAN cloud (app.js)
     devices: {
       r1: {
         hostname: 'R1', role: 'Spoke-1', model: 'ISR4331', version: '17.09.04a', serial: 'FDO2213A0R1', pqcSupport: false,

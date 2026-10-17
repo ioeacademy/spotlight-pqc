@@ -392,6 +392,9 @@
   /* ═══════════════════════ Topology ═══════════════════════ */
   const SVGNS = 'http://www.w3.org/2000/svg';
   const POS = { r1: 150, r2: 480, r3: 810 }; const Y = 205; const TOP = Y - 20;
+  // `layout: 'triangle'` (GRE lab): R2 on top as the hub, inside a cloud that stands for the whole WAN; spokes below
+  const TRI = TOPO.layout === 'triangle';
+  const PT = TRI ? { r1: [150, 214], r2: [480, 80], r3: [810, 214] } : { r1: [150, Y], r2: [480, Y], r3: [810, Y] };
   const svg = $('#topo');
   const el = (tag, attrs = {}, parent) => { const n = document.createElementNS(SVGNS, tag); for (const [a, v] of Object.entries(attrs)) n.setAttribute(a, v); if (parent) parent.appendChild(n); return n; };
   let gLinks, gTun, gPkt, tunSig = '';
@@ -402,8 +405,9 @@
     const gr = el('linearGradient', { id: 'g-router', x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
     el('stop', { offset: '0%', 'stop-color': '#009de2' }, gr); el('stop', { offset: '100%', 'stop-color': '#0a60ff' }, gr);
     gTun = el('g', { id: 'g-tun' }, svg);
+    if (TRI) drawCloud();
     gLinks = el('g', { id: 'g-links' }, svg);
-    for (const l of TOPO.links) {
+    if (TRI) drawTriangleLinks(); else for (const l of TOPO.links) {
       const [a, b] = [l.a, l.b]; const x1 = POS[a[0]] + 50, x2 = POS[b[0]] - 50;
       el('line', { class: 'link', x1, y1: Y, x2, y2: Y }, gLinks);
       el('circle', { class: 'dot-up', cx: x1 + 6, cy: Y, r: 4.5, 'data-port': a.join(':') }, gLinks);
@@ -416,7 +420,7 @@
       }
     }
     for (const k of DEVS) {
-      const x = POS[k], def = TOPO.devices[k];
+      const [x, Yr] = PT[k], def = TOPO.devices[k], Y = Yr, hub = TRI && k === 'r2';
       const g = el('g', { class: 'router', 'data-dev': k, tabindex: 0, role: 'button', 'aria-label': `Open ${def.hostname} console` }, svg);
       // Cisco router symbol as a line icon: a cylinder, two arrows meeting on the top face, two leaving it
       const RX = 42, RY = 15, cy = Y - 9, H = 24;
@@ -428,13 +432,51 @@
       ar(`M${x + RX - 8},${cy - 1} H${x + 13} m5,-4.5 l-5,4.5 l5,4.5`);    // in, from the right
       ar(`M${x - 4},${cy - 1} V${cy - 12} m-4.5,4.5 l4.5,-4.5 l4.5,4.5`);   // out, up
       ar(`M${x + 4},${cy + 1} V${cy + 12} m-4.5,-4.5 l4.5,4.5 l4.5,-4.5`);  // out, down
-      const h = el('text', { class: 'host', x, y: Y + 56, 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
-      const r = el('text', { class: 'role', x, y: Y + 75, 'text-anchor': 'middle' }, g); r.textContent = def.role;
+      const h = el('text', { class: 'host', x, y: Y + (hub ? 44 : TRI ? 52 : 56), 'text-anchor': 'middle' }, g); h.textContent = def.hostname;
+      const r = el('text', { class: 'role', x, y: Y + (hub ? 62 : TRI ? 71 : 75), 'text-anchor': 'middle' }, g); r.textContent = def.role;
       g.addEventListener('click', () => selectDev(k, true));
       g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectDev(k, true); } });
     }
     gPkt = el('g', { id: 'g-pkt' }, svg);
   }
+  function drawCloud() {
+    const cx = PT.r2[0], cy = PT.r2[1];
+    el('path', { class: 'cloud', d: `M${cx - 150},${cy + 58} C${cx - 200},${cy + 58} ${cx - 205},${cy + 4} ${cx - 160},${cy - 6}
+      C${cx - 168},${cy - 52} ${cx - 100},${cy - 74} ${cx - 64},${cy - 46} C${cx - 44},${cy - 82} ${cx + 44},${cy - 82} ${cx + 64},${cy - 46}
+      C${cx + 100},${cy - 74} ${cx + 168},${cy - 52} ${cx + 160},${cy - 6} C${cx + 205},${cy + 4} ${cx + 200},${cy + 58} ${cx + 150},${cy + 58}
+      C${cx + 120},${cy + 86} ${cx + 52},${cy + 84} ${cx + 32},${cy + 66} C${cx + 12},${cy + 84} ${cx - 12},${cy + 84} ${cx - 32},${cy + 66}
+      C${cx - 52},${cy + 84} ${cx - 120},${cy + 86} ${cx - 150},${cy + 58} Z` }, svg);
+    const t = (y, cls, txt) => { const n = el('text', { class: cls, x: cx - 184, y, 'text-anchor': 'end' }, svg); n.textContent = txt; };
+    t(26, 'cloud-lbl', 'WAN'); t(44, 'cloud-note', 'R2 can stand for'); t(60, 'cloud-note', 'a whole provider network');
+  }
+  // underlay links from the top of each spoke into R2; every label on the outside of the triangle
+  function drawTriangleLinks() {
+    const txt = (x, y, cls, s, an) => { const n = el('text', { class: cls, x, y, 'text-anchor': an }, gLinks); n.textContent = s; };
+    for (const l of TOPO.links) {
+      const se = l.a[0] === 'r2' ? l.b : l.a, he = l.a[0] === 'r2' ? l.a : l.b, [sx, sy] = PT[se[0]], [hx, hy] = PT.r2, o = sx < hx ? -1 : 1, an = o < 0 ? 'end' : 'start';
+      const S = [sx - o * 30, sy - 25], H = [hx + o * 44, hy - 2];
+      el('line', { class: 'link', x1: S[0], y1: S[1], x2: H[0], y2: H[1] }, gLinks);
+      el('circle', { class: 'dot-up', cx: S[0], cy: S[1], r: 4.5, 'data-port': se.join(':') }, gLinks);
+      el('circle', { class: 'dot-up', cx: H[0], cy: H[1], r: 4.5, 'data-port': he.join(':') }, gLinks);
+      const ipOf = e => { const dv = TOPO.devices[e[0]], p = dv.interfaces[e[1]]; return p.vlan ? (dv.interfaces['Vlan' + p.vlan] || {}).ip : p.ip; };
+      txt(S[0] + o * 2, S[1] - 12, 'lbl-ip', ipOf(se), an); txt(S[0] + o * 2, S[1] - 31, 'lbl-port', ifShort(se[1]), an);
+      txt(H[0] + o * 8, H[1] - 10, 'lbl-ip', ipOf(he), an); txt(H[0] + o * 8, H[1] - 29, 'lbl-port', ifShort(he[1]), an);
+      txt((S[0] + H[0]) / 2 + o * 12, (S[1] + H[1]) / 2 - 14, 'lbl-link', `${l.label} · ${l.speed}`, an);
+    }
+  }
+  // triangle tunnels: spoke to spoke straight along the base; spoke to hub on a curve inside the triangle.
+  // Returns the path (drawn from `from`), the badge centre and where each end's tunnel address goes.
+  const triPath = (a, b) => {
+    if (a !== 'r2' && b !== 'r2') {
+      const [l, r] = PT[a][0] < PT[b][0] ? [a, b] : [b, a], y0 = PT.r1[1] - 4, x1 = PT[l][0] + 48, x2 = PT[r][0] - 48;
+      return { d: `M${x1},${y0} L${x2},${y0}`, from: l, badge: [(x1 + x2) / 2, y0], addr: { [l]: [x1 + 4, y0 + 24, 'start'], [r]: [x2 - 4, y0 + 24, 'end'] } };
+    }
+    const sp = a === 'r2' ? b : a, [sx, sy] = PT[sp], [hx, hy] = PT.r2, o = sx < hx ? 1 : -1, an = o > 0 ? 'start' : 'end';
+    const x1 = sx + o * 46, y1 = sy - 8, x2 = hx - o * 44, y2 = hy + 6, qx = (x1 + x2) / 2 + o * 40, qy = (y1 + y2) / 2 + 40;
+    const q = (u, p0, p1, p2) => (1 - u) ** 2 * p0 + 2 * (1 - u) * u * p1 + u * u * p2;
+    return { d: `M${x1},${y1} Q${qx},${qy} ${x2},${y2}`, from: sp, badge: [q(0.5, x1, qx, x2), q(0.5, y1, qy, y2) + 8],
+      addr: { [sp]: [x1 + o * 8, y1 + 22, an], r2: [q(0.75, x1, qx, x2) + o * 10, q(0.75, y1, qy, y2) + 12, an] } };
+  };
   const arcPath = (a, b) => {
     const x1 = POS[a], x2 = POS[b]; const span = Math.abs(x2 - x1);
     const h = span > 400 ? 150 : 88; const mx = (x1 + x2) / 2;
@@ -478,16 +520,23 @@
     }
     const fs = fsScale();
     for (const it of items) {
-      const { d, apex, at } = arcPath(it.a, it.b);
+      const tp = TRI ? triPath(it.a, it.b) : null;
+      const { d, apex, at } = tp ? { d: tp.d, apex: tp.badge, at: null } : arcPath(it.a, it.b);
       const g = el('g', { 'data-key': it.key, role: 'button', tabindex: 0, 'aria-label': `Inspect tunnel: ${it.label}` }, gTun);
       el('path', { class: 'tun-hit', d }, g);
-      el('path', { class: 'tun ' + it.kind, d, id: 'tun-' + cssId(it.key) }, g);
+      el('path', { class: 'tun ' + it.kind, d, id: 'tun-' + cssId(it.key), 'data-from': tp ? tp.from : it.a }, g);
       const lg = el('g', { class: 'tun-label' }, g);
       const full = `${it.st} · ${it.label}`;
       const w = full.length * 8.6 * fs + 34;
       // tunnel interface addresses where the arc leaves each router, overlay subnet under the pill
       const addrs = it.ends.map(([dv, ifn]) => ({ dv, i: tunAddr(dv, ifn) })).filter(x => x.i);
       for (const { dv, i } of addrs) {
+        if (tp) {   // triangle: positions come with the path; the hub end shows only the host part
+          const [x, y, an] = tp.addr[dv], t = el('text', { class: 'lbl-tun', x, y, 'text-anchor': an }, g);
+          t.textContent = dv === 'r2' || it.a === 'r2' || it.b === 'r2' ? '.' + i.ip.split('.').pop() : i.ip;
+          const tt = el('title', {}, t); tt.textContent = `${lab.dev(dv).hostname} ${ifShort(it.ends.find(e => e[0] === dv)[1])} ${i.ip}`;
+          continue;
+        }
         const left = POS[dv] === Math.min(POS[it.a], POS[it.b]);
         // inside the arc, so the two addresses that meet at a hub never collide
         const [px, py] = at(left === (POS[it.a] < POS[it.b]) ? 0.15 : 0.85);
@@ -532,18 +581,18 @@
       let pathEl, reverse = false, color = 'var(--cisco-primary)';
       if (h.via === 'tunnel') {
         pathEl = document.getElementById('tun-' + cssId(h.key)); if (!pathEl) continue;
-        reverse = POS[h.from] > POS[h.to];
+        reverse = pathEl.getAttribute('data-from') !== h.from;
         const cls = pathEl.getAttribute('class'); color = cls.includes('pqc') ? 'var(--pqc)' : cls.includes('ppk') ? 'var(--ppk)' : 'var(--classic)';
       } else {
-        pathEl = el('path', { d: `M${POS[h.from]},${Y} L${POS[h.to]},${Y}`, fill: 'none', stroke: 'none' }, gPkt);
+        pathEl = el('path', { d: `M${PT[h.from][0]},${PT[h.from][1] - (TRI ? 20 : 0)} L${PT[h.to][0]},${PT[h.to][1] - (TRI ? 20 : 0)}`, fill: 'none', stroke: 'none' }, gPkt);
       }
       await movePacket(pathEl, reverse, color, h.via === 'tunnel');
       if (h.via !== 'tunnel') pathEl.remove();
     }
     if (!meta.ok) {
       const at = meta.path.fwd.length ? meta.path.fwd[meta.path.fwd.length - 1].to : null;
-      const x = POS[at || Object.keys(POS)[0]];
-      const xMark = el('text', { x: x, y: Y - 34, 'text-anchor': 'middle', 'font-size': 22, fill: 'var(--fail)', class: 'pkt' }, gPkt); xMark.textContent = '✕';
+      const [x, yy] = PT[at || Object.keys(PT)[0]];
+      const xMark = el('text', { x: x, y: yy - 34, 'text-anchor': 'middle', 'font-size': 22, fill: 'var(--fail)', class: 'pkt' }, gPkt); xMark.textContent = '✕';
       setTimeout(() => xMark.remove(), 900);
     }
   }

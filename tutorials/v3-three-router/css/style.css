@@ -202,6 +202,10 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 #topo .tun-label text.lbl-tun-net { font-family: var(--font-mono); font-size: calc(13px * var(--fs)); font-weight: 500; fill: var(--ink-muted); }
 #topo .lbl-tun { font-family: var(--font-mono); font-size: calc(15px * var(--fs)); font-weight: 600; fill: var(--ink); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
 #topo .pkt { pointer-events: none; }
+/* triangle layout (GRE lab): the WAN cloud around R2 — outlined with a faint tint, never louder than the tunnels */
+#topo .cloud { fill: var(--tint); stroke: var(--line-subtle); stroke-width: 1.5; }
+#topo .cloud-lbl { font-size: calc(14px * var(--fs)); font-weight: 700; fill: var(--ink-muted); letter-spacing: .06em; }
+#topo .cloud-note { font-size: calc(13px * var(--fs)); fill: var(--ink-muted); }
 @media (prefers-reduced-motion: reduce) { #topo .tun.neg, #topo .tun.half { animation: none; } }
 .hresizer { height: 6px; flex-shrink: 0; background: var(--term-chrome); cursor: row-resize; border-top: 1px solid var(--line-subtle); }
 .hresizer:hover, .hresizer.drag { background: var(--action); }
