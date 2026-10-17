@@ -93,9 +93,10 @@ ${callout('info', 'The topology now shows the tunnel as a dotted arc: <b>GRE · 
 ${cfg('r1', ['configure terminal', 'ip route 10.3.3.0 255.255.255.0 192.168.100.2', 'end'])}
 ${cfg('r3', ['configure terminal', 'ip route 10.1.1.0 255.255.255.0 192.168.100.1', 'end'])}
 ${cfg('r1', ['ping 10.3.3.3 source Loopback1', 'traceroute 10.3.3.3'], 'test')}
-${out(['  1 192.168.100.2 3 msec *  2 msec'])}
+<p>Expected output: the ping succeeds from R1's LAN address, and the traceroute reaches R3 in one hop.</p>
+${out(['R1#ping 10.3.3.3 source Loopback1', '…', '!!!!!', 'Success rate is 100 percent (5/5)', '', 'R1#traceroute 10.3.3.3', '…', '  1 192.168.100.2 3 msec *  2 msec'])}
 <p>The traceroute shows <b>one hop</b>, straight to R3: R2 is invisible, because the LAN packets travel inside GRE. R2 never learned a route to 10.1.1.0 or 10.3.3.0, and it doesn't need one.</p>
-<p>The hop is listed as <code>192.168.100.2</code>, R3's tunnel address, not 10.3.3.3: a router answers a traceroute from the interface it uses to reach the sender, and R3 reaches R1 through Tunnel0. The <code>*</code> in the middle is normal: IOS rate-limits the ICMP replies, so one of the three probes goes unanswered.</p>
+<p>The hop is listed as <code>192.168.100.2</code>, R3's tunnel address, not 10.3.3.3: a router answers a traceroute from the interface it uses to reach the sender. Without a <code>source</code>, R1's traceroute leaves from its Tunnel0 address 192.168.100.1, and R3 reaches that address through its own Tunnel0. The <code>*</code> in the middle is normal: IOS rate-limits the ICMP replies, so one of the three probes goes unanswered.</p>
 ${callout('warn', '<b>Don\'t route the WAN into the tunnel.</b> If the route to the tunnel destination (192.0.23.2) pointed into Tunnel0, the tunnel would carry itself: IOS logs <code>%TUN-5-RECURDOWN: Tunnel0 temporarily disabled due to recursive routing</code> and the tunnel goes down. Try it with <code>ip route 192.0.23.2 255.255.255.255 Tunnel0</code>, then remove it.')}
 <div class="goal">Goal: R1 pings 10.3.3.3 from its LAN (source Loopback1), through the tunnel.</div>`,
       run: [...runOf('r1', ['configure terminal', 'ip route 10.3.3.0 255.255.255.0 192.168.100.2', 'end']), ...runOf('r3', ['configure terminal', 'ip route 10.1.1.0 255.255.255.0 192.168.100.1', 'end']), ['r1', 'ping 10.3.3.3 source Loopback1'], ['r1', 'traceroute 10.3.3.3']],
