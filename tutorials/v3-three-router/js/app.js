@@ -506,8 +506,34 @@
   function renderInk() {
     if (!gInk || !gInk.isConnected) gInk = el('g', { id: 'g-ink' }, svg); else svg.appendChild(gInk);   // always on top
     gInk.innerHTML = '';
-    for (const st of ink.strokes) el('path', { class: 'ink-stroke', d: inkD(st.pts), stroke: INK.find(c => c[0] === st.color)[2], style: `stroke-width:${st.w || 3.5}` }, gInk);
+    for (const st of ink.strokes) {
+      const col = INK.find(c => c[0] === st.color)[2];
+      if (st.type === 'text') {
+        const t = el('text', { class: 'ink-text', x: st.x, y: st.y, fill: col, style: `font-size:${st.size}px` }, gInk);
+        st.lines.forEach((ln, i) => { const sp = el('tspan', { x: st.x, dy: i ? '1.25em' : 0 }, t); sp.textContent = ln || ' '; });
+      } else el('path', { class: 'ink-stroke', d: inkD(st.pts), stroke: col, style: `stroke-width:${st.w || 3.5}` }, gInk);
+    }
     const u = $('#ink-undo'), c = $('#ink-clear'); if (u) u.disabled = !ink.strokes.length; if (c) c.hidden = !ink.strokes.length;
+  }
+  function openTextEditor(e) {
+    const wrap = $('#topo-wrap'), wr = wrap.getBoundingClientRect(), m = svg.getScreenCTM(); if (!m) return;
+    const px = 16 * fsScale(), p = svgPoint(e), color = ink.color, col = INK.find(c => c[0] === color)[2];
+    const ta = document.createElement('textarea');
+    ta.className = 'ink-editor'; ta.rows = 1; ta.setAttribute('aria-label', 'Note on the topology: Escape when done');
+    Object.assign(ta.style, { left: `${e.clientX - wr.left}px`, top: `${e.clientY - wr.top}px`, fontSize: `${px}px`, color: col });
+    wrap.appendChild(ta); ta.focus();
+    const grow = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; ta.style.width = 'auto'; ta.style.width = Math.max(80, ta.scrollWidth + 4) + 'px'; };
+    ta.addEventListener('input', grow); grow();
+    let done = false;
+    const commit = () => {
+      if (done) return; done = true;
+      const text = ta.value.replace(/\s+$/, ''); ta.remove();
+      if (!text) return;
+      const size = px / m.a;   // the size it was typed at; it then zooms with the topology
+      ink.strokes.push({ type: 'text', color, x: p.x, y: p.y + size * 0.85, size, lines: text.split('\n') }); renderInk();
+    };
+    ta.addEventListener('keydown', ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); commit(); } });
+    ta.addEventListener('blur', commit);
   }
   function setupWhiteboard() {
     const fsg = $('.fs-group'), bar = $('.topo-toolbar'); if (!fsg && !bar) return;
@@ -516,7 +542,7 @@
       <button type="button" class="ink-btn" id="ink-undo" title="Undo the last drawing" aria-label="Undo the last drawing" disabled>↶</button><button type="button" class="ink-link" id="ink-clear" hidden>Clear all</button>`;
     // next to the text-size and theme controls in the header
     if (fsg) fsg.parentNode.insertBefore(tools, fsg); else bar.appendChild(tools);
-    const hint = $('.topo-hint'); if (hint) hint.textContent = 'Click a router for its console · click a tunnel to inspect it · drag to draw';
+    const hint = $('.topo-hint'); if (hint) hint.textContent = 'Click a router for its console · click a tunnel to inspect it · drag to draw · double-click to write';
     tools.addEventListener('click', e => {
       const sw = e.target.closest('[data-ink]');
       if (sw) { ink.color = sw.dataset.ink; tools.querySelectorAll('[data-ink]').forEach(b => b.setAttribute('aria-pressed', b === sw)); }
@@ -550,6 +576,12 @@
     setupZoom();
     // the click that ends a drawing must not open a console or an inspector
     svg.addEventListener('click', e => { if (ink.drew) { ink.drew = false; e.stopPropagation(); e.preventDefault(); } }, true);
+    // double-click on empty space: type a note there (Enter = new line, Escape or a click elsewhere = done)
+    svg.addEventListener('dblclick', e => {
+      if (e.target.closest('.router, [data-key], .ink-text')) return;
+      e.preventDefault(); const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges();
+      openTextEditor(e);
+    });
     renderInk();
   }
   /* ── zoom: pinch (trackpad or two fingers) or − / + zooms around the gesture, 25%–400%; zoomed out, the topology
