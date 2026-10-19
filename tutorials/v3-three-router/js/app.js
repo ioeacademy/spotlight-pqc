@@ -497,6 +497,52 @@
     return { d: `M${x1},${y1} Q${qx},${qy} ${x2},${y2}`, from: sp, badge: [q(0.5, x1, qx, x2), q(0.5, y1, qy, y2) + 8],
       addr: { [sp]: [x1 + o * 8, y1 + 22, an], r2: [q(0.75, x1, qx, x2) + o * 10, q(0.75, y1, qy, y2) + 12, an] } };
   };
+  /* ── whiteboard: drag on the topology to draw; a plain click still opens consoles and inspectors ── */
+  const INK = [['ink', 'Black', 'var(--ink)'], ['blue', 'Blue', '#0a60ff'], ['red', 'Red', 'var(--danger)']];
+  const ink = { color: 'ink', strokes: [], cur: null, start: null, drew: false };
+  let gInk = null;
+  function svgPoint(e) { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; const m = svg.getScreenCTM(); return m ? p.matrixTransform(m.inverse()) : p; }
+  const inkD = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  function renderInk() {
+    if (!gInk || !gInk.isConnected) gInk = el('g', { id: 'g-ink' }, svg); else svg.appendChild(gInk);   // always on top
+    gInk.innerHTML = '';
+    for (const st of ink.strokes) el('path', { class: 'ink-stroke', d: inkD(st.pts), stroke: INK.find(c => c[0] === st.color)[2] }, gInk);
+    const u = $('#ink-undo'), c = $('#ink-clear'); if (u) u.disabled = !ink.strokes.length; if (c) c.hidden = !ink.strokes.length;
+  }
+  function setupWhiteboard() {
+    const bar = $('.topo-toolbar'); if (!bar) return;
+    const tools = document.createElement('span'); tools.className = 'ink-tools'; tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', 'Drawing on the topology');
+    tools.innerHTML = `<span class="ink-lbl">Draw</span>${INK.map(([k, n, c]) => `<button type="button" class="ink-sw" data-ink="${k}" aria-pressed="${k === ink.color}" title="${n} pen: drag on the topology to draw" aria-label="${n} pen" style="--sw:${c}"></button>`).join('')}
+      <button type="button" class="ink-btn" id="ink-undo" title="Undo the last drawing" disabled>↶ Undo</button><button type="button" class="ink-link" id="ink-clear" hidden>Clear all</button>`;
+    bar.appendChild(tools);
+    const hint = $('.topo-hint'); if (hint) hint.textContent = 'Click a router for its console · click a tunnel to inspect it · drag to draw';
+    tools.addEventListener('click', e => {
+      const sw = e.target.closest('[data-ink]');
+      if (sw) { ink.color = sw.dataset.ink; tools.querySelectorAll('[data-ink]').forEach(b => b.setAttribute('aria-pressed', b === sw)); }
+      if (e.target.closest('#ink-undo')) { ink.strokes.pop(); renderInk(); }
+      if (e.target.closest('#ink-clear')) { ink.strokes = []; renderInk(); }
+    });
+    svg.addEventListener('pointerdown', e => {
+      if (e.button !== 0) return;
+      ink.start = svgPoint(e); ink.cur = null; ink.drew = false; ink.pid = e.pointerId;
+    });
+    svg.addEventListener('pointermove', e => {
+      if (!ink.start || e.pointerId !== ink.pid) return;
+      const p = svgPoint(e);
+      if (!ink.cur) {
+        if (Math.hypot(p.x - ink.start.x, p.y - ink.start.y) < 4) return;   // still a click
+        ink.cur = { color: ink.color, pts: [[ink.start.x, ink.start.y]] }; ink.strokes.push(ink.cur); ink.drew = true;
+        try { svg.setPointerCapture(e.pointerId); } catch (err) { }
+        svg.classList.add('inking');
+      }
+      ink.cur.pts.push([p.x, p.y]); renderInk();
+    });
+    const end = () => { ink.start = null; ink.cur = null; svg.classList.remove('inking'); };
+    svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+    // the click that ends a drawing must not open a console or an inspector
+    svg.addEventListener('click', e => { if (ink.drew) { ink.drew = false; e.stopPropagation(); e.preventDefault(); } }, true);
+    renderInk();
+  }
   const arcPath = (a, b) => {
     const x1 = POS[a], x2 = POS[b]; const span = Math.abs(x2 - x1);
     const h = span > 400 ? 150 : 88; const mx = (x1 + x2) / 2;
@@ -766,7 +812,7 @@ SK_pi' = prf+(PPK, SK_pi)    SK_pr' = prf+(PPK, SK_pr)   ← RFC 8784: PPK "${es
   $('#modal-bg').addEventListener('click', e => { if (e.target.id === 'modal-bg') closeInspector(); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && inspKey) closeInspector(); });
   $('#btn-reset').addEventListener('click', () => { if (confirm('Reset all three routers and your progress?')) location.reload(); });
-  drawStatic();
+  drawStatic(); setupWhiteboard();
   buildConsoles();
   renderSteps();
   buildStepNav();
