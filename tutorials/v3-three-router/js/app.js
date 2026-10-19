@@ -506,7 +506,7 @@
   function renderInk() {
     if (!gInk || !gInk.isConnected) gInk = el('g', { id: 'g-ink' }, svg); else svg.appendChild(gInk);   // always on top
     gInk.innerHTML = '';
-    for (const st of ink.strokes) el('path', { class: 'ink-stroke', d: inkD(st.pts), stroke: INK.find(c => c[0] === st.color)[2] }, gInk);
+    for (const st of ink.strokes) el('path', { class: 'ink-stroke', d: inkD(st.pts), stroke: INK.find(c => c[0] === st.color)[2], style: `stroke-width:${st.w || 3.5}` }, gInk);
     const u = $('#ink-undo'), c = $('#ink-clear'); if (u) u.disabled = !ink.strokes.length; if (c) c.hidden = !ink.strokes.length;
   }
   function setupWhiteboard() {
@@ -534,7 +534,8 @@
       const p = svgPoint(e);
       if (!ink.cur) {
         if (Math.hypot(p.x - ink.start.x, p.y - ink.start.y) < 4) return;   // still a click
-        ink.cur = { color: ink.color, pts: [[ink.start.x, ink.start.y]] }; ink.strokes.push(ink.cur); ink.drew = true;
+        // the same on-screen width at any zoom while drawing; the stroke then scales with the topology
+        ink.cur = { color: ink.color, pts: [[ink.start.x, ink.start.y]], w: 3.5 * (zoom.vb ? zoom.vb.w / zoom.base.w : 1) }; ink.strokes.push(ink.cur); ink.drew = true;
         try { svg.setPointerCapture(e.pointerId); } catch (err) { }
         svg.classList.add('inking'); document.body.classList.add('inking');
         const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges();
@@ -551,17 +552,21 @@
     svg.addEventListener('click', e => { if (ink.drew) { ink.drew = false; e.stopPropagation(); e.preventDefault(); } }, true);
     renderInk();
   }
-  /* ── zoom: pinch (trackpad or two fingers) zooms around the gesture, 1x–4x; two-finger scroll or drag pans ── */
+  /* ── zoom: pinch (trackpad or two fingers) or − / + zooms around the gesture, 25%–400%; zoomed out, the topology
+        shrinks into a large blank whiteboard; two-finger scroll or drag pans ── */
+  const ZMIN = 0.25, ZMAX = 4;
   const zoom = { base: null, vb: null, touches: new Map(), pinch: null };
   function setVB() {
     const B = zoom.base, v = zoom.vb;
-    v.w = Math.min(B.w, Math.max(B.w / 4, v.w)); v.h = v.w * B.h / B.w;
-    v.x = Math.min(B.x + B.w - v.w, Math.max(B.x, v.x)); v.y = Math.min(B.y + B.h - v.h, Math.max(B.y, v.y));
+    v.w = Math.min(B.w / ZMIN, Math.max(B.w / ZMAX, v.w)); v.h = v.w * B.h / B.w;
+    // the whiteboard reaches two topology-widths beyond each side
+    v.x = Math.min(B.x + 3 * B.w - v.w, Math.max(B.x - 2 * B.w, v.x)); v.y = Math.min(B.y + 3 * B.h - v.h, Math.max(B.y - 2 * B.h, v.y));
     svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
-    const r = $('#zoom-reset'); if (r) { const z = B.w / v.w; r.hidden = z < 1.01; r.textContent = `Reset zoom (${Math.round(z * 100)}%)`; }
+    const z = B.w / v.w, pct = $('#zoom-pct'); if (pct) { pct.textContent = `${Math.round(z * 100)}%`; pct.title = Math.abs(z - 1) < 0.01 ? 'Zoom 100%' : 'Back to 100%'; }
+    const zi = $('#zoom-in'), zo = $('#zoom-out'); if (zi) zi.disabled = z >= ZMAX - 0.001; if (zo) zo.disabled = z <= ZMIN + 0.001;
   }
   function zoomAt(clientX, clientY, factor) {
-    const p = svgPoint({ clientX, clientY }), v = zoom.vb, w = Math.min(zoom.base.w, Math.max(zoom.base.w / 4, v.w / factor)), k = w / v.w;
+    const p = svgPoint({ clientX, clientY }), v = zoom.vb, w = Math.min(zoom.base.w / ZMIN, Math.max(zoom.base.w / ZMAX, v.w / factor)), k = w / v.w;
     v.x = p.x - (p.x - v.x) * k; v.y = p.y - (p.y - v.y) * k; v.w = w; setVB();
   }
   function panBy(dxPx, dyPx) { const m = svg.getScreenCTM(); if (!m) return; zoom.vb.x -= dxPx / m.a; zoom.vb.y -= dyPx / m.d; setVB(); }
@@ -578,13 +583,22 @@
     const [x, y, w, h] = svg.getAttribute('viewBox').split(/[\s,]+/).map(Number);
     zoom.base = { x, y, w, h }; zoom.vb = { x, y, w, h };
     const bar = $('#topo-wrap');   // floats in the topology's corner, so the toolbar never grows
-    if (bar) { const r = document.createElement('button'); r.type = 'button'; r.className = 'ink-link zoom-reset'; r.id = 'zoom-reset'; r.hidden = true; bar.appendChild(r);
-      r.addEventListener('click', () => { Object.assign(zoom.vb, zoom.base); setVB(); }); }
+    if (bar) {
+      const zc = document.createElement('div'); zc.className = 'zoom-ctl'; zc.setAttribute('role', 'group'); zc.setAttribute('aria-label', 'Topology zoom');
+      zc.innerHTML = '<button type="button" id="zoom-out" title="Zoom out" aria-label="Zoom out">−</button><button type="button" id="zoom-pct" aria-label="Reset zoom to 100%">100%</button><button type="button" id="zoom-in" title="Zoom in" aria-label="Zoom in">+</button>';
+      bar.appendChild(zc);
+      const mid = f => { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, f); };
+      zc.addEventListener('click', e => {
+        if (e.target.closest('#zoom-in')) mid(1.25); else if (e.target.closest('#zoom-out')) mid(0.8);
+        else if (e.target.closest('#zoom-pct')) { Object.assign(zoom.vb, zoom.base); setVB(); }
+      });
+    }
     const hint = $('.topo-hint'); if (hint) hint.textContent += ' · pinch to zoom';
+    setVB();
     // trackpad pinch arrives as ctrl + wheel (Chrome, Firefox, Edge, recent Safari); plain two-finger scroll pans once zoomed
     svg.addEventListener('wheel', e => {
       if (e.ctrlKey) { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01)); }
-      else if (zoom.vb.w < zoom.base.w - 0.5) { e.preventDefault(); panBy(-e.deltaX, -e.deltaY); }
+      else if (Math.abs(zoom.vb.w - zoom.base.w) > 0.5) { e.preventDefault(); panBy(-e.deltaX, -e.deltaY); }
     }, { passive: false });
     // older Safari on macOS: gesture events
     let gs = 1;

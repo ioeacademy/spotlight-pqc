@@ -218,8 +218,12 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 /* whiteboard on the topology */
 #topo { touch-action: none; }
 .topo-wrap { position: relative; }
-.zoom-reset { position: absolute; right: 10px; bottom: 8px; background: var(--surface); border: 1px solid var(--line-subtle); border-radius: var(--radius-control); padding: 3px 8px; text-decoration: none; }
-.zoom-reset:hover { border-color: var(--action); }
+.zoom-ctl { position: absolute; right: 10px; bottom: 8px; display: inline-flex; border: 1px solid var(--line-subtle); border-radius: var(--radius-control); background: var(--surface); overflow: hidden; }
+.zoom-ctl button { font: inherit; font-size: 12px; line-height: 16px; min-width: 26px; padding: 3px 6px; border: 0; background: transparent; color: var(--ink); cursor: pointer; font-variant-numeric: tabular-nums; }
+.zoom-ctl button + button { border-left: 1px solid var(--line-subtle); }
+.zoom-ctl button:hover:not(:disabled) { color: var(--accent-text); background: var(--accent-soft); }
+.zoom-ctl button:disabled { color: var(--muted); opacity: .5; cursor: default; }
+.zoom-ctl #zoom-pct { min-width: 46px; }
 #topo.inking, #topo.inking * { cursor: crosshair !important; }
 #topo .ink-stroke { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 #topo #g-ink { pointer-events: none; }
