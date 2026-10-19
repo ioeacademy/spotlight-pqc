@@ -90,6 +90,7 @@
     }
     document.querySelectorAll('#topo .router').forEach(g => g.classList.toggle('active', g.dataset.dev === k));
     scroll(k);
+    if (inkReady) renderInk();   // the console just shown gets its drawing overlay sized and drawn
     if (focus) T[k].inp.focus({ preventScroll: true });
   }
   function flushLogs() {
@@ -502,7 +503,7 @@
         scroll with the text they were drawn on. ── */
   const INK = [['ink', 'Black', 'var(--ink)'], ['blue', 'Blue', '#0a60ff'], ['red', 'Red', 'var(--danger)']];
   const ink = { color: 'ink', tool: 'pen', strokes: [], hist: [], cur: null, start: null, drew: false, layer: null, all: false };
-  let gInk = null;
+  let gInk = null, inkReady = false;
   function svgPoint(e) { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; const m = svg.getScreenCTM(); return m ? p.matrixTransform(m.inverse()) : p; }
   const inkD = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
   /* drawing surfaces: the topology (zoomable SVG) and an overlay on each scrolling pane */
@@ -515,7 +516,8 @@
     // overlay coordinates are the host's content pixels (unzoomed); the pane may be CSS-zoomed by the text size
     const scale = () => { const r = o.getBoundingClientRect(), w = parseFloat(o.getAttribute('width')) || 1; return r.width / w || 1; };
     const L = { id, svg: o, g: o, host: () => hostEl,
-      fit() { o.setAttribute('width', 0); o.setAttribute('height', 0); o.setAttribute('width', hostEl.scrollWidth); o.setAttribute('height', hostEl.scrollHeight); },
+      // cover the host's whole scrollable content; a hidden pane (an inactive console tab) keeps its size
+      fit() { if (!hostEl.clientWidth) return; o.setAttribute('width', 0); o.setAttribute('height', 0); o.setAttribute('width', Math.max(hostEl.scrollWidth, hostEl.clientWidth)); o.setAttribute('height', Math.max(hostEl.scrollHeight, hostEl.clientHeight)); },
       point(e) { L.fit(); const r = o.getBoundingClientRect(), k = scale(); return { x: (e.clientX - r.left) / k, y: (e.clientY - r.top) / k }; },
       perPx: () => 1 / scale(), editorAt: (e, p) => [p.x, p.y], edScale: () => scale() };
     L.fit(); LAYERS[id] = L; bindInk(L); return L;
@@ -657,7 +659,8 @@
       e.preventDefault(); const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges();
       openTextEditor(e, L);
     });
-    renderInk();
+    inkReady = true; renderInk();
+    window.addEventListener('resize', () => renderInk());
   }
   /* ── zoom: pinch (trackpad or two fingers) or − / + zooms around the gesture, 25%–400%; zoomed out, the topology
         shrinks into a large blank whiteboard; two-finger scroll or drag pans ── */
