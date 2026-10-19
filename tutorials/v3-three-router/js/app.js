@@ -510,11 +510,12 @@
     const u = $('#ink-undo'), c = $('#ink-clear'); if (u) u.disabled = !ink.strokes.length; if (c) c.hidden = !ink.strokes.length;
   }
   function setupWhiteboard() {
-    const bar = $('.topo-toolbar'); if (!bar) return;
+    const fsg = $('.fs-group'), bar = $('.topo-toolbar'); if (!fsg && !bar) return;
     const tools = document.createElement('span'); tools.className = 'ink-tools'; tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', 'Drawing on the topology');
-    tools.innerHTML = `<span class="ink-lbl">Draw</span>${INK.map(([k, n, c]) => `<button type="button" class="ink-sw" data-ink="${k}" aria-pressed="${k === ink.color}" title="${n} pen: drag on the topology to draw" aria-label="${n} pen" style="--sw:${c}"></button>`).join('')}
-      <button type="button" class="ink-btn" id="ink-undo" title="Undo the last drawing" disabled>↶ Undo</button><button type="button" class="ink-link" id="ink-clear" hidden>Clear all</button>`;
-    bar.appendChild(tools);
+    tools.innerHTML = `<span class="ink-lbl" aria-hidden="true" title="Drag on the topology to draw">✎</span>${INK.map(([k, n, c]) => `<button type="button" class="ink-sw" data-ink="${k}" aria-pressed="${k === ink.color}" title="${n} pen: drag on the topology to draw" aria-label="${n} pen" style="--sw:${c}"></button>`).join('')}
+      <button type="button" class="ink-btn" id="ink-undo" title="Undo the last drawing" aria-label="Undo the last drawing" disabled>↶</button><button type="button" class="ink-link" id="ink-clear" hidden>Clear all</button>`;
+    // next to the text-size and theme controls in the header
+    if (fsg) fsg.parentNode.insertBefore(tools, fsg); else bar.appendChild(tools);
     const hint = $('.topo-hint'); if (hint) hint.textContent = 'Click a router for its console · click a tunnel to inspect it · drag to draw';
     tools.addEventListener('click', e => {
       const sw = e.target.closest('[data-ink]');
@@ -533,11 +534,12 @@
         if (Math.hypot(p.x - ink.start.x, p.y - ink.start.y) < 4) return;   // still a click
         ink.cur = { color: ink.color, pts: [[ink.start.x, ink.start.y]] }; ink.strokes.push(ink.cur); ink.drew = true;
         try { svg.setPointerCapture(e.pointerId); } catch (err) { }
-        svg.classList.add('inking');
+        svg.classList.add('inking'); document.body.classList.add('inking');
+        const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges();
       }
       ink.cur.pts.push([p.x, p.y]); renderInk();
     });
-    const end = () => { ink.start = null; ink.cur = null; svg.classList.remove('inking'); };
+    const end = () => { ink.start = null; ink.cur = null; svg.classList.remove('inking'); document.body.classList.remove('inking'); };
     svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
     // the click that ends a drawing must not open a console or an inspector
     svg.addEventListener('click', e => { if (ink.drew) { ink.drew = false; e.stopPropagation(); e.preventDefault(); } }, true);

@@ -220,15 +220,18 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 #topo.inking, #topo.inking * { cursor: crosshair !important; }
 #topo .ink-stroke { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 #topo #g-ink { pointer-events: none; }
-.ink-tools { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.ink-lbl { color: var(--muted); }
-.ink-sw { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--surface); background: var(--sw); box-shadow: 0 0 0 1px var(--line-subtle); cursor: pointer; padding: 0; }
+.ink-tools { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 6px; white-space: nowrap; border: 1px solid var(--line); border-radius: var(--radius-control); font-size: 12px; }
+.ink-lbl { color: var(--muted); font-size: 14px; cursor: default; }
+.ink-sw { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--surface); background: var(--sw); box-shadow: 0 0 0 1px var(--line-subtle); cursor: pointer; padding: 0; }
 .ink-sw[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--action); }
 .ink-sw:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.ink-btn { font: inherit; font-size: 12px; line-height: 16px; padding: 2px 8px; border-radius: var(--radius-control); border: 1px solid var(--line-subtle); background: var(--surface); color: var(--ink); cursor: pointer; }
+.ink-btn { font: inherit; font-size: 15px; line-height: 1; width: 24px; height: 22px; padding: 0; border-radius: 4px; border: 1px solid transparent; background: transparent; color: var(--ink); cursor: pointer; }
 .ink-btn:hover:not(:disabled) { border-color: var(--action); color: var(--accent-text); }
-.ink-btn:disabled { color: var(--muted); cursor: default; opacity: .6; }
-.ink-link { font: inherit; font-size: 12px; border: 0; background: none; padding: 0; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.ink-btn:disabled { color: var(--muted); cursor: default; opacity: .5; }
+.ink-link { font: inherit; font-size: 12px; border: 0; background: none; padding: 0 2px; color: var(--accent-text); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+/* no text selection while drawing: the topology labels never highlight, nor does the page if the stroke strays off it */
+#topo, #topo text { -webkit-user-select: none; user-select: none; }
+body.inking, body.inking * { -webkit-user-select: none !important; user-select: none !important; }
 #topo .lbl-drop { font-family: var(--font-mono); font-size: calc(14px * var(--fs)); font-weight: 700; fill: var(--fail); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
 /* triangle layout (GRE lab): the WAN cloud around R2 — outlined with a faint tint, never louder than the tunnels */
 #topo .cloud { fill: var(--tint); stroke: var(--line-subtle); stroke-width: 1.5; }
