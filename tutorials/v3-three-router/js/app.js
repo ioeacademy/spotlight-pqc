@@ -499,7 +499,36 @@
   };
   /* ── whiteboard: drag on the topology to draw; a plain click still opens consoles and inspectors ── */
   const INK = [['ink', 'Black', 'var(--ink)'], ['blue', 'Blue', '#0a60ff'], ['red', 'Red', 'var(--danger)']];
-  const ink = { color: 'ink', strokes: [], cur: null, start: null, drew: false };
+  const ink = { color: 'ink', tool: 'pen', strokes: [], hist: [], cur: null, start: null, drew: false };
+  // every change is one history entry, so Undo also brings back what the eraser or Clear all removed
+  const inkAdd = item => { ink.strokes.push(item); ink.hist.push({ op: 'add', item }); };
+  function inkUndo() {
+    const h = ink.hist.pop(); if (!h) return;
+    if (h.op === 'add') { const i = ink.strokes.indexOf(h.item); if (i >= 0) ink.strokes.splice(i, 1); }
+    else if (h.op === 'erase') for (const { item, index } of [...h.items].reverse()) ink.strokes.splice(index, 0, item);
+    else if (h.op === 'clear') ink.strokes = h.items.slice();
+    renderInk();
+  }
+  // eraser: removes whole drawings and notes within ~10 screen pixels of the pointer
+  function eraseAt(p) {
+    const m = svg.getScreenCTM(); if (!m) return;
+    const r = 10 / m.a, d2 = (ax, ay, bx, by) => { const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy, t = L ? Math.max(0, Math.min(1, ((p.x - ax) * dx + (p.y - ay) * dy) / L)) : 0; return Math.hypot(p.x - ax - t * dx, p.y - ay - t * dy); };
+    const hit = st => {
+      if (st.type === 'text') { const w = Math.max(...st.lines.map(l => l.length)) * st.size * 0.62, h = (st.lines.length - 1) * 1.25 * st.size;
+        return p.x >= st.x - r && p.x <= st.x + w + r && p.y >= st.y - st.size - r && p.y <= st.y + h + st.size * 0.3 + r; }
+      const pts = st.pts; if (pts.length === 1) return Math.hypot(p.x - pts[0][0], p.y - pts[0][1]) <= r + st.w / 2;
+      for (let i = 1; i < pts.length; i++) if (d2(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]) <= r + (st.w || 3.5) / 2) return true;
+      return false;
+    };
+    let gone = false;
+    for (let i = ink.strokes.length - 1; i >= 0; i--) if (hit(ink.strokes[i])) {
+      if (!ink.eraseOp) { ink.eraseOp = { op: 'erase', items: [] }; ink.hist.push(ink.eraseOp); }
+      ink.eraseOp.items.push({ item: ink.strokes[i], index: i }); ink.strokes.splice(i, 1); gone = true;
+    }
+    if (gone) { ink.drew = true; renderInk(); }
+    if (!ink.dot || !ink.dot.isConnected) ink.dot = el('circle', { class: 'ink-eraser' }, svg); else svg.appendChild(ink.dot);
+    ink.dot.setAttribute('cx', p.x); ink.dot.setAttribute('cy', p.y); ink.dot.setAttribute('r', r);
+  }
   let gInk = null;
   function svgPoint(e) { const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; const m = svg.getScreenCTM(); return m ? p.matrixTransform(m.inverse()) : p; }
   const inkD = pts => pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
@@ -513,7 +542,7 @@
         st.lines.forEach((ln, i) => { const sp = el('tspan', { x: st.x, dy: i ? '1.25em' : 0 }, t); sp.textContent = ln || ' '; });
       } else el('path', { class: 'ink-stroke', d: inkD(st.pts), stroke: col, style: `stroke-width:${st.w || 3.5}` }, gInk);
     }
-    const u = $('#ink-undo'), c = $('#ink-clear'); if (u) u.disabled = !ink.strokes.length; if (c) c.hidden = !ink.strokes.length;
+    const u = $('#ink-undo'), c = $('#ink-clear'); if (u) u.disabled = !ink.hist.length; if (c) c.hidden = !ink.strokes.length;
   }
   function openTextEditor(e) {
     const wrap = $('#topo-wrap'), wr = wrap.getBoundingClientRect(), m = svg.getScreenCTM(); if (!m) return;
@@ -530,7 +559,7 @@
       const text = ta.value.replace(/\s+$/, ''); ta.remove();
       if (!text) return;
       const size = px / m.a;   // the size it was typed at; it then zooms with the topology
-      ink.strokes.push({ type: 'text', color, x: p.x, y: p.y + size * 0.85, size, lines: text.split('\n') }); renderInk();
+      inkAdd({ type: 'text', color, x: p.x, y: p.y + size * 0.85, size, lines: text.split('\n') }); renderInk();
     };
     ta.addEventListener('keydown', ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); commit(); } });
     ta.addEventListener('blur', commit);
@@ -538,30 +567,37 @@
   function setupWhiteboard() {
     const fsg = $('.fs-group'), bar = $('.topo-toolbar'); if (!fsg && !bar) return;
     const tools = document.createElement('span'); tools.className = 'ink-tools'; tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', 'Drawing on the topology');
-    tools.innerHTML = `<span class="ink-lbl" aria-hidden="true" title="Drag on the topology to draw">✎</span>${INK.map(([k, n, c]) => `<button type="button" class="ink-sw" data-ink="${k}" aria-pressed="${k === ink.color}" title="${n} pen: drag on the topology to draw" aria-label="${n} pen" style="--sw:${c}"></button>`).join('')}
+    tools.innerHTML = `<span class="ink-lbl" aria-hidden="true" title="Drag on the topology to draw">✎</span>${INK.map(([k, n, c]) => `<button type="button" class="ink-sw" data-ink="${k}" aria-pressed="${k === ink.color}" title="${n} pen: drag on the topology to draw" aria-label="${n} pen" style="--sw:${c}"></button>`).join('')}<button type="button" class="ink-btn ink-eraser-btn" data-tool="eraser" aria-pressed="false" title="Eraser: drag over drawings and notes to remove them" aria-label="Eraser"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M8.5 16.5h8M3.6 11.7l6.9-6.9a1.6 1.6 0 0 1 2.3 0l3 3a1.6 1.6 0 0 1 0 2.3l-6.4 6.4H6.3l-2.7-2.6a1.6 1.6 0 0 1 0-2.2z M7.2 8.2l5.2 5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <button type="button" class="ink-btn" id="ink-undo" title="Undo the last drawing" aria-label="Undo the last drawing" disabled>↶</button><button type="button" class="ink-link" id="ink-clear" hidden>Clear all</button>`;
     // next to the text-size and theme controls in the header
     if (fsg) fsg.parentNode.insertBefore(tools, fsg); else bar.appendChild(tools);
-    const hint = $('.topo-hint'); if (hint) hint.textContent = 'Click a router for its console · click a tunnel to inspect it · drag to draw · double-click to write';
+    const hint = $('.topo-hint'); if (hint) { hint.textContent = 'Click: console or inspector · drag: draw · double-click: write'; hint.title = 'Click a router for its console, a tunnel to inspect it. Drag to draw, double-click empty space to write, pinch to zoom.'; }
     tools.addEventListener('click', e => {
-      const sw = e.target.closest('[data-ink]');
-      if (sw) { ink.color = sw.dataset.ink; tools.querySelectorAll('[data-ink]').forEach(b => b.setAttribute('aria-pressed', b === sw)); }
-      if (e.target.closest('#ink-undo')) { ink.strokes.pop(); renderInk(); }
-      if (e.target.closest('#ink-clear')) { ink.strokes = []; renderInk(); }
+      const sw = e.target.closest('[data-ink]'), er = e.target.closest('[data-tool="eraser"]');
+      if (sw) { ink.color = sw.dataset.ink; ink.tool = 'pen'; }
+      if (er) ink.tool = 'eraser';
+      if (sw || er) { tools.querySelectorAll('[data-ink]').forEach(b => b.setAttribute('aria-pressed', ink.tool === 'pen' && b.dataset.ink === ink.color)); tools.querySelector('[data-tool]').setAttribute('aria-pressed', ink.tool === 'eraser'); svg.classList.toggle('erasing', ink.tool === 'eraser'); }
+      if (e.target.closest('#ink-undo')) inkUndo();
+      if (e.target.closest('#ink-clear') && ink.strokes.length) { ink.hist.push({ op: 'clear', items: ink.strokes.slice() }); ink.strokes = []; renderInk(); }
     });
     svg.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
       if (e.pointerType === 'touch') { zoom.touches.set(e.pointerId, [e.clientX, e.clientY]); if (zoom.touches.size >= 2) return startPinch(); }
-      ink.start = svgPoint(e); ink.cur = null; ink.drew = false; ink.pid = e.pointerId;
+      ink.start = svgPoint(e); ink.cur = null; ink.drew = false; ink.pid = e.pointerId; ink.eraseOp = null;
+      if (ink.tool === 'eraser') eraseAt(ink.start);
     });
     svg.addEventListener('pointermove', e => {
       if (zoom.touches.has(e.pointerId)) { zoom.touches.set(e.pointerId, [e.clientX, e.clientY]); if (zoom.pinch) return movePinch(); }
       if (!ink.start || e.pointerId !== ink.pid) return;
       const p = svgPoint(e);
+      if (ink.tool === 'eraser') {
+        if (Math.hypot(p.x - ink.start.x, p.y - ink.start.y) >= 4 && !ink.drew) { ink.drew = true; try { svg.setPointerCapture(e.pointerId); } catch (err) { } document.body.classList.add('inking'); }
+        return eraseAt(p);
+      }
       if (!ink.cur) {
         if (Math.hypot(p.x - ink.start.x, p.y - ink.start.y) < 4) return;   // still a click
         // the same on-screen width at any zoom while drawing; the stroke then scales with the topology
-        ink.cur = { color: ink.color, pts: [[ink.start.x, ink.start.y]], w: 3.5 * (zoom.vb ? zoom.vb.w / zoom.base.w : 1) }; ink.strokes.push(ink.cur); ink.drew = true;
+        ink.cur = { color: ink.color, pts: [[ink.start.x, ink.start.y]], w: 3.5 * (zoom.vb ? zoom.vb.w / zoom.base.w : 1) }; inkAdd(ink.cur); ink.drew = true;
         try { svg.setPointerCapture(e.pointerId); } catch (err) { }
         svg.classList.add('inking'); document.body.classList.add('inking');
         const sel = window.getSelection && window.getSelection(); if (sel) sel.removeAllRanges();
@@ -570,7 +606,8 @@
     });
     const end = e => {
       zoom.touches.delete(e.pointerId); if (zoom.touches.size < 2) zoom.pinch = null;
-      ink.start = null; ink.cur = null; svg.classList.remove('inking'); document.body.classList.remove('inking');
+      ink.start = null; ink.cur = null; ink.eraseOp = null; svg.classList.remove('inking'); document.body.classList.remove('inking');
+      if (ink.dot) ink.dot.remove();
     };
     svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
     setupZoom();
@@ -604,7 +641,7 @@
   function panBy(dxPx, dyPx) { const m = svg.getScreenCTM(); if (!m) return; zoom.vb.x -= dxPx / m.a; zoom.vb.y -= dyPx / m.d; setVB(); }
   const pinchState = () => { const [a, b] = [...zoom.touches.values()]; return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 }; };
   function startPinch() {
-    if (ink.cur) { ink.strokes.splice(ink.strokes.indexOf(ink.cur), 1); renderInk(); }   // the first finger had started a stroke
+    if (ink.cur) { ink.strokes.splice(ink.strokes.indexOf(ink.cur), 1); ink.hist = ink.hist.filter(h => h.item !== ink.cur); renderInk(); }   // the first finger had started a stroke
     ink.start = null; ink.cur = null; ink.drew = false; zoom.pinch = pinchState();
   }
   function movePinch() {
@@ -625,7 +662,7 @@
         else if (e.target.closest('#zoom-pct')) { Object.assign(zoom.vb, zoom.base); setVB(); }
       });
     }
-    const hint = $('.topo-hint'); if (hint) hint.textContent += ' · pinch to zoom';
+    const hint = $('.topo-hint'); if (hint) hint.textContent += ' · pinch: zoom';
     setVB();
     // trackpad pinch arrives as ctrl + wheel (Chrome, Firefox, Edge, recent Safari); plain two-finger scroll pans once zoomed
     svg.addEventListener('wheel', e => {
