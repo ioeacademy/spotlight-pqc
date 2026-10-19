@@ -217,6 +217,9 @@ pre.out::before { content: 'Expected output'; display: block; font-family: var(-
 #topo .pkt { pointer-events: none; }
 /* whiteboard on the topology */
 #topo { touch-action: none; }
+.topo-wrap { position: relative; }
+.zoom-reset { position: absolute; right: 10px; bottom: 8px; background: var(--surface); border: 1px solid var(--line-subtle); border-radius: var(--radius-control); padding: 3px 8px; text-decoration: none; }
+.zoom-reset:hover { border-color: var(--action); }
 #topo.inking, #topo.inking * { cursor: crosshair !important; }
 #topo .ink-stroke { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
 #topo #g-ink { pointer-events: none; }

@@ -525,9 +525,11 @@
     });
     svg.addEventListener('pointerdown', e => {
       if (e.button !== 0) return;
+      if (e.pointerType === 'touch') { zoom.touches.set(e.pointerId, [e.clientX, e.clientY]); if (zoom.touches.size >= 2) return startPinch(); }
       ink.start = svgPoint(e); ink.cur = null; ink.drew = false; ink.pid = e.pointerId;
     });
     svg.addEventListener('pointermove', e => {
+      if (zoom.touches.has(e.pointerId)) { zoom.touches.set(e.pointerId, [e.clientX, e.clientY]); if (zoom.pinch) return movePinch(); }
       if (!ink.start || e.pointerId !== ink.pid) return;
       const p = svgPoint(e);
       if (!ink.cur) {
@@ -539,11 +541,56 @@
       }
       ink.cur.pts.push([p.x, p.y]); renderInk();
     });
-    const end = () => { ink.start = null; ink.cur = null; svg.classList.remove('inking'); document.body.classList.remove('inking'); };
+    const end = e => {
+      zoom.touches.delete(e.pointerId); if (zoom.touches.size < 2) zoom.pinch = null;
+      ink.start = null; ink.cur = null; svg.classList.remove('inking'); document.body.classList.remove('inking');
+    };
     svg.addEventListener('pointerup', end); svg.addEventListener('pointercancel', end);
+    setupZoom();
     // the click that ends a drawing must not open a console or an inspector
     svg.addEventListener('click', e => { if (ink.drew) { ink.drew = false; e.stopPropagation(); e.preventDefault(); } }, true);
     renderInk();
+  }
+  /* ── zoom: pinch (trackpad or two fingers) zooms around the gesture, 1x–4x; two-finger scroll or drag pans ── */
+  const zoom = { base: null, vb: null, touches: new Map(), pinch: null };
+  function setVB() {
+    const B = zoom.base, v = zoom.vb;
+    v.w = Math.min(B.w, Math.max(B.w / 4, v.w)); v.h = v.w * B.h / B.w;
+    v.x = Math.min(B.x + B.w - v.w, Math.max(B.x, v.x)); v.y = Math.min(B.y + B.h - v.h, Math.max(B.y, v.y));
+    svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`);
+    const r = $('#zoom-reset'); if (r) { const z = B.w / v.w; r.hidden = z < 1.01; r.textContent = `Reset zoom (${Math.round(z * 100)}%)`; }
+  }
+  function zoomAt(clientX, clientY, factor) {
+    const p = svgPoint({ clientX, clientY }), v = zoom.vb, w = Math.min(zoom.base.w, Math.max(zoom.base.w / 4, v.w / factor)), k = w / v.w;
+    v.x = p.x - (p.x - v.x) * k; v.y = p.y - (p.y - v.y) * k; v.w = w; setVB();
+  }
+  function panBy(dxPx, dyPx) { const m = svg.getScreenCTM(); if (!m) return; zoom.vb.x -= dxPx / m.a; zoom.vb.y -= dyPx / m.d; setVB(); }
+  const pinchState = () => { const [a, b] = [...zoom.touches.values()]; return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 }; };
+  function startPinch() {
+    if (ink.cur) { ink.strokes.splice(ink.strokes.indexOf(ink.cur), 1); renderInk(); }   // the first finger had started a stroke
+    ink.start = null; ink.cur = null; ink.drew = false; zoom.pinch = pinchState();
+  }
+  function movePinch() {
+    const n = pinchState(), o = zoom.pinch;
+    zoomAt(n.mx, n.my, n.d / o.d); panBy(n.mx - o.mx, n.my - o.my); zoom.pinch = n;
+  }
+  function setupZoom() {
+    const [x, y, w, h] = svg.getAttribute('viewBox').split(/[\s,]+/).map(Number);
+    zoom.base = { x, y, w, h }; zoom.vb = { x, y, w, h };
+    const bar = $('#topo-wrap');   // floats in the topology's corner, so the toolbar never grows
+    if (bar) { const r = document.createElement('button'); r.type = 'button'; r.className = 'ink-link zoom-reset'; r.id = 'zoom-reset'; r.hidden = true; bar.appendChild(r);
+      r.addEventListener('click', () => { Object.assign(zoom.vb, zoom.base); setVB(); }); }
+    const hint = $('.topo-hint'); if (hint) hint.textContent += ' · pinch to zoom';
+    // trackpad pinch arrives as ctrl + wheel (Chrome, Firefox, Edge, recent Safari); plain two-finger scroll pans once zoomed
+    svg.addEventListener('wheel', e => {
+      if (e.ctrlKey) { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01)); }
+      else if (zoom.vb.w < zoom.base.w - 0.5) { e.preventDefault(); panBy(-e.deltaX, -e.deltaY); }
+    }, { passive: false });
+    // older Safari on macOS: gesture events
+    let gs = 1;
+    svg.addEventListener('gesturestart', e => { e.preventDefault(); gs = 1; });
+    svg.addEventListener('gesturechange', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, e.scale / gs); gs = e.scale; });
+    svg.addEventListener('gestureend', e => e.preventDefault());
   }
   const arcPath = (a, b) => {
     const x1 = POS[a], x2 = POS[b]; const span = Math.abs(x2 - x1);
