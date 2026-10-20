@@ -911,8 +911,7 @@
         <ul>${end(gt.a.dev, gt.a.if, gt.upA, gt.reasonA)}${gt.b ? end(gt.b.dev, gt.b.if, gt.upB, gt.reasonB) : ''}</ul>
         ${half ? `<div class="err-box"><b>${esc(H(upD))} still thinks the tunnel is up.</b> Without <code>keepalive</code>, a GRE tunnel's line protocol depends only on its own source and a route to the destination, so ${esc(H(upD))} stays up/up and keeps sending GRE packets that ${esc(H(dnD))} drops. With <code>keepalive</code> on ${esc(H(upD))}, unanswered keepalives would bring its tunnel down too (default every 10 s, down after 3 misses).</div>` : ''}
         ${gt.b ? '' : `<div class="err-box"><b>No tunnel on ${esc(H(gt.owner))}.</b> ${esc(H(gt.a.dev))}'s tunnel can be up/up — its destination is routable — but ${esc(H(gt.owner))} has no tunnel whose source and destination mirror it, so it drops the GRE packets. Without <code>keepalive</code>, IOS does not notice.</div>`}
-        <p><b>GRE is not encrypted.</b> It only adds a GRE header and a new IP header; anyone on the path can read the original packets. To encrypt, use an IPsec VTI (<code>tunnel mode ipsec ipv4</code> + <code>tunnel protection ipsec profile …</code>).</p>
-        <p class="src">Line protocol rules: Cisco TAC <i>Determine What Impacts GRE Tunnel Interface States</i> and <i>How GRE Keepalives Work</i>.</p>`;
+        <p><b>GRE is not encrypted.</b> It only adds a GRE header and a new IP header; anyone on the path can read the original packets. To encrypt, use an IPsec VTI (<code>tunnel mode ipsec ipv4</code> + <code>tunnel protection ipsec profile …</code>).</p>`;
       return;
     }
     const t = lab.tunnels().find(x => x.key === inspKey);

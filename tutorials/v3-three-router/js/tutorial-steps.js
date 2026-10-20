@@ -20,7 +20,7 @@
   const cfg = (dev, lines, note) => `<div class="cfg"><div class="cfg-head"><span class="dev-chip dev-${dev}">${dev.toUpperCase()}</span>${note ? `<span class="cfg-note">${note}</span>` : ''}</div><pre>${esc(lines.join('\n'))}</pre></div>`;
   const out = (lines) => `<pre class="out">${esc(lines.join('\n'))}</pre>`;
   const callout = (kind, html) => `<div class="callout ${kind}">${html}</div>`;
-  const EDU_NOTICE = callout('edu', `<b>🎓 For learning only.</b> This is a simulator to practise IOS XE commands and get familiar with post-quantum VPN concepts and configuration steps. It is not a real router: output can differ from real platforms and software releases, so <b>don't use it to validate configurations</b> for a real network. It is provided <b>as is</b>, with no warranty and no support. Always check the official Cisco documentation and test on real equipment before deploying. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
+  const EDU_NOTICE = callout('edu', `<b>🎓 For education only.</b> This is a simulator, not a real router: output can differ. <b>Don't use it to validate configurations.</b> <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
   const runOf = (dev, lines) => lines.map(c => [dev, c]);
   /* the classic VPN configuration, one sub-block per construct (each with its own ▶) */
   const GROUPS = [

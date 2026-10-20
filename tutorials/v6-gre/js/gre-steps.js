@@ -6,7 +6,7 @@
   const out = lines => `<pre class="out">${esc(lines.join('\n'))}</pre>`;
   const callout = (kind, html) => `<div class="callout ${kind}">${html}</div>`;
   const runOf = (dev, lines) => lines.map(c => [dev, c]);
-  const EDU_NOTICE = callout('edu', `<b>🎓 For learning only.</b> This is a simulator to practise IOS XE commands. It is not a real router: output can differ from real platforms, so <b>don't use it to validate configurations</b>. Provided <b>as is</b>, with no warranty and no support. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
+  const EDU_NOTICE = callout('edu', `<b>🎓 For education only.</b> This is a simulator, not a real router: output can differ. <b>Don't use it to validate configurations.</b> <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
   const TAC = '<a href="https://www.cisco.com/c/en/us/support/docs/ip/generic-routing-encapsulation-gre/118361-technote-gre-00.html" target="_blank" rel="noopener">Cisco: what impacts GRE tunnel states</a>';
   const KA = '<a href="https://www.cisco.com/c/en/us/support/docs/ip/generic-routing-encapsulation-gre/63760-gre-keepalives-63760.html" target="_blank" rel="noopener">Cisco: how GRE keepalives work</a>';
 
@@ -35,7 +35,7 @@ ${EDU_NOTICE}
 <tr><td>R3</td><td>Loopback1 (LAN)</td><td>10.3.3.3/24</td></tr>
 <tr><td>Tunnel0</td><td>GRE/IP</td><td>192.168.100.1 (R1) ⇄ .2 (R3), /30</td></tr>
 </table>
-<p>The WAN links use <b>public-style</b> addresses, as an Internet link would, each a /30 with one address per end. The third octet names the link (<b>12</b> = R1–R2, <b>23</b> = R2–R3) so they are easy to remember. These are lab addresses only: 192.0.12.0 and 192.0.23.0 belong to real networks, so the ranges <a href="https://www.rfc-editor.org/rfc/rfc5737" target="_blank" rel="noopener">RFC 5737</a> reserves for examples (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) are the right choice outside a closed lab. The LANs and the tunnel use private <a href="https://www.rfc-editor.org/rfc/rfc1918" target="_blank" rel="noopener">RFC 1918</a> addresses, which the Internet does not route: that is why they need the tunnel.</p>
+<p>The WAN links use <b>public-style</b> addresses, as an Internet link would, each a /30 with one address per end. The third octet names the link (<b>12</b> = R1–R2, <b>23</b> = R2–R3) so they are easy to remember. The LANs and the tunnel use private <a href="https://www.rfc-editor.org/rfc/rfc1918" target="_blank" rel="noopener">RFC 1918</a> addresses, which the Internet does not route: that is why they need the tunnel.</p>
 ${callout('info', 'Type commands in the consoles on the right (<kbd>?</kbd> for help, <kbd>Tab</kbd> to complete), or use <b>▶</b> on a snippet and <b>Show Me</b>. Each step checks what the network actually does.')}`,
       run: [], validate: () => true, hints: [],
     },

@@ -44,7 +44,7 @@
   }
 
   const shown = lines => lines.slice(1, -1).filter(l => !/^\s*exit$/.test(l));
-  const EDU_NOTICE = callout('edu', `<b>🎓 For learning only.</b> This is a simulator to practise IOS XE commands and get familiar with VPN and post-quantum concepts. It is not a real router: output can differ from real platforms, so <b>don't use it to validate configurations</b>. Provided <b>as is</b>, with no warranty and no support. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
+  const EDU_NOTICE = callout('edu', `<b>🎓 For education only.</b> This is a simulator, not a real router: output can differ. <b>Don't use it to validate configurations.</b> <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
   const LAB_TABLE = `<table class="t mono">
 <tr><th></th><th>Role</th><th>WAN interface</th><th>Address</th></tr>
 <tr><td>R1</td><td>VPN peer</td><td>Tw0/0/0</td><td>192.0.12.1/30</td></tr>
@@ -52,7 +52,7 @@
 <tr><td>Tw0/0/1</td><td>192.0.23.1/30</td></tr>
 <tr><td>R3</td><td>VPN peer</td><td>Tw0/0/0</td><td>192.0.23.2/30</td></tr>
 </table>
-<p>The WAN links use <b>public-style</b> addresses, as an Internet link would, each a /30 with one address per end; the third octet names the link (<b>12</b> = R1–R2, <b>23</b> = R2–R3). They are lab addresses only: outside a closed lab use the <a href="https://www.rfc-editor.org/rfc/rfc5737" target="_blank" rel="noopener">RFC 5737</a> example ranges.</p>
+<p>The WAN links use <b>public-style</b> addresses, as an Internet link would, each a /30 with one address per end; the third octet names the link (<b>12</b> = R1–R2, <b>23</b> = R2–R3).</p>
 <p>The tunnel runs between R1 and R3 and uses the overlay network <code>192.168.100.0/24</code> (R1 = .1, R3 = .2).</p>`;
   const HOW = callout('info', 'Type commands in the console on the right (<kbd>?</kbd> for help, <kbd>Tab</kbd> to complete). Each step checks the <i>real state</i> of the simulated routers. Stuck? <b>Show Me</b> types the commands for you.');
 
