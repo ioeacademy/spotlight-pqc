@@ -15,7 +15,8 @@ Browser-based labs for learning quantum-safe IPsec VPNs on Cisco IOS XE. No rout
 | Post-Quantum Key Exchange on Cisco Routers (classical → PPK → ML-KEM-768 → hub-and-spoke) | [`tutorials/v3-three-router/`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v3-three-router/) |
 | VPN Block Builder | [`tutorials/v6-blocks/`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v6-blocks/) |
 | VPN Building Blocks (earlier mockup) | [`tutorials/v4-blocks/mockup.html`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v4-blocks/mockup.html) |
-| IKEv2 Packet Journey (real classical and ML-KEM captures, Wireshark-style decode) | [`tutorials/v7-packet-journey/`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v7-packet-journey/) |
+| IKEv2 Packet Journey (real classical and ML-KEM captures, Wireshark-style decode) | [`tutorials/v8-packet-journey/`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v8-packet-journey/) |
+| IKEv2 Packet Journey, earlier look | [`tutorials/v7-packet-journey/`](https://ioeacademy.github.io/spotlight-pqc/tutorials/v7-packet-journey/) |
 
 The post-quantum track reproduces *Post-Quantum Key Exchange on Cisco Routers – IPsec Series Part 9*
 (Cisco Blogs, Julio Gomez) on three routers R1 – R2 – R3, with syntax checked against the
