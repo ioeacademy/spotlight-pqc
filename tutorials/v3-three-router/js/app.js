@@ -543,7 +543,8 @@
         st.lines.forEach((ln, i) => { const sp = el('tspan', { x: st.x, dy: i ? '1.25em' : 0 }, t); sp.textContent = ln || ' '; });
       } else el('path', { class: 'ink-stroke', d: inkD(st.pts), stroke: col, style: `stroke-width:${st.w || 3.5}` }, L.g);
     }
-    const u = $('#ink-undo'), c = $('#ink-clear'); if (u) u.disabled = !ink.hist.length; if (c) c.hidden = !ink.strokes.length;
+    document.querySelectorAll('[data-act="undo"]').forEach(u => { u.disabled = !ink.hist.length; });
+    document.querySelectorAll('[data-act="clear"]').forEach(c => { c.hidden = !ink.strokes.length; });
   }
   // eraser: removes whole drawings and notes within ~10 screen pixels of the pointer, on the surface it is used on
   function eraseAt(L, p) {
@@ -614,26 +615,35 @@
   }
   function setDrawAll(on) {
     ink.all = on; document.body.classList.toggle('ink-all', on);
-    const b = $('#ink-all'); if (b) { b.setAttribute('aria-pressed', on); b.title = on ? 'Drawing on the whole page: Esc or click to stop' : 'Draw on the instructions and consoles too'; }
+    document.querySelectorAll('[data-act="all"]').forEach(b => { b.setAttribute('aria-pressed', on); b.title = on ? 'Drawing on the whole page: Esc or click to stop' : 'Draw on the instructions and consoles too'; });
     if (on) renderInk();
+  }
+  // a set of drawing tools; every set shows and changes the same state
+  function mountInkTools(parent, before) {
+    const tools = document.createElement('span'); tools.className = 'ink-tools'; tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', 'Drawing');
+    tools.innerHTML = `<button type="button" class="ink-btn ink-all-btn" data-act="all" aria-pressed="${ink.all}" aria-label="Draw on the instructions and consoles too" title="Draw on the instructions and consoles too">✎</button>${INK.map(([k, n, c]) => `<button type="button" class="ink-sw" data-ink="${k}" aria-pressed="${ink.tool === 'pen' && k === ink.color}" title="${n} pen" aria-label="${n} pen" style="--sw:${c}"></button>`).join('')}<button type="button" class="ink-btn ink-eraser-btn" data-tool="eraser" aria-pressed="${ink.tool === 'eraser'}" title="Eraser: drag over drawings and notes to remove them" aria-label="Eraser"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M8.5 16.5h8M3.6 11.7l6.9-6.9a1.6 1.6 0 0 1 2.3 0l3 3a1.6 1.6 0 0 1 0 2.3l-6.4 6.4H6.3l-2.7-2.6a1.6 1.6 0 0 1 0-2.2z M7.2 8.2l5.2 5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button type="button" class="ink-btn" data-act="undo" title="Undo" aria-label="Undo" ${ink.hist.length ? '' : 'disabled'}>↶</button><button type="button" class="ink-link" data-act="clear" ${ink.strokes.length ? '' : 'hidden'}>Clear all</button>`;
+    parent.insertBefore(tools, before);
+    tools.addEventListener('click', e => {
+      const sw = e.target.closest('[data-ink]'), er = e.target.closest('[data-tool="eraser"]');
+      if (e.target.closest('[data-act="all"]')) setDrawAll(!ink.all);
+      if (sw) { ink.color = sw.dataset.ink; ink.tool = 'pen'; }
+      if (er) ink.tool = 'eraser';
+      if (sw || er) {
+        document.querySelectorAll('.ink-tools [data-ink]').forEach(b => b.setAttribute('aria-pressed', ink.tool === 'pen' && b.dataset.ink === ink.color));
+        document.querySelectorAll('.ink-tools [data-tool]').forEach(b => b.setAttribute('aria-pressed', ink.tool === 'eraser'));
+        document.body.classList.toggle('ink-erasing', ink.tool === 'eraser');
+      }
+      if (e.target.closest('[data-act="undo"]')) inkUndo();
+      if (e.target.closest('[data-act="clear"]') && ink.strokes.length) { ink.hist.push({ op: 'clear', items: ink.strokes.slice() }); ink.strokes = []; renderInk(); }
+    });
+    return tools;
   }
   function setupWhiteboard() {
     const fsg = $('.fs-group'), bar = $('.topo-toolbar'); if (!fsg && !bar) return;
-    const tools = document.createElement('span'); tools.className = 'ink-tools'; tools.setAttribute('role', 'group'); tools.setAttribute('aria-label', 'Drawing');
-    tools.innerHTML = `<button type="button" class="ink-btn ink-all-btn" id="ink-all" aria-pressed="false" aria-label="Draw on the instructions and consoles too" title="Draw on the instructions and consoles too">✎</button>${INK.map(([k, n, c]) => `<button type="button" class="ink-sw" data-ink="${k}" aria-pressed="${k === ink.color}" title="${n} pen" aria-label="${n} pen" style="--sw:${c}"></button>`).join('')}<button type="button" class="ink-btn ink-eraser-btn" data-tool="eraser" aria-pressed="false" title="Eraser: drag over drawings and notes to remove them" aria-label="Eraser"><svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M8.5 16.5h8M3.6 11.7l6.9-6.9a1.6 1.6 0 0 1 2.3 0l3 3a1.6 1.6 0 0 1 0 2.3l-6.4 6.4H6.3l-2.7-2.6a1.6 1.6 0 0 1 0-2.2z M7.2 8.2l5.2 5.2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-      <button type="button" class="ink-btn" id="ink-undo" title="Undo" aria-label="Undo" disabled>↶</button><button type="button" class="ink-link" id="ink-clear" hidden>Clear all</button>`;
-    // next to the text-size and theme controls in the header
-    if (fsg) fsg.parentNode.insertBefore(tools, fsg); else bar.appendChild(tools);
-    const hint = $('.topo-hint'); if (hint) { hint.textContent = 'Click: console or inspector · drag: draw · double-click: write'; hint.title = 'Click a router for its console, a tunnel to inspect it. Drag to draw, double-click empty space to write, pinch to zoom. ✎ in the header draws on the instructions and consoles too.'; }
-    tools.addEventListener('click', e => {
-      const sw = e.target.closest('[data-ink]'), er = e.target.closest('[data-tool="eraser"]');
-      if (e.target.closest('#ink-all')) setDrawAll(!ink.all);
-      if (sw) { ink.color = sw.dataset.ink; ink.tool = 'pen'; }
-      if (er) ink.tool = 'eraser';
-      if (sw || er) { tools.querySelectorAll('[data-ink]').forEach(b => b.setAttribute('aria-pressed', ink.tool === 'pen' && b.dataset.ink === ink.color)); tools.querySelector('[data-tool]').setAttribute('aria-pressed', ink.tool === 'eraser'); document.body.classList.toggle('ink-erasing', ink.tool === 'eraser'); }
-      if (e.target.closest('#ink-undo')) inkUndo();
-      if (e.target.closest('#ink-clear') && ink.strokes.length) { ink.hist.push({ op: 'clear', items: ink.strokes.slice() }); ink.strokes = []; renderInk(); }
-    });
+    // next to the text-size and theme controls in the header (a copy also sits in the bottom bar)
+    mountInkTools(fsg ? fsg.parentNode : bar, fsg || null);
+    const hint = $('.topo-hint'); if (hint) { hint.textContent = 'Click: console or inspector · drag: draw · double-click: write'; hint.title = 'Click a router for its console, a tunnel to inspect it. Drag to draw, double-click empty space to write, pinch to zoom. ✎ draws on the instructions and consoles too.'; }
     document.addEventListener('keydown', e => { if (e.key === 'Escape' && ink.all && !(e.target.closest && e.target.closest('.ink-editor'))) setDrawAll(false); });
     // overlays on the instructions and on each console (they only take the pointer while ✎ is on)
     overlayLayer('steps', $('#steps'));
@@ -996,6 +1006,7 @@ SK_pi' = prf+(PPK, SK_pi)    SK_pr' = prf+(PPK, SK_pr)   ← RFC 8784: PPK "${es
   const bottom = document.createElement('footer'); bottom.className = 'bottombar'; bottom.setAttribute('aria-label', 'Status');
   bottom.innerHTML = '<span class="bb-dev" id="bb-dev"></span><span class="bb-keys"><kbd>?</kbd> help · <kbd>Tab</kbd> complete · <kbd>↑</kbd><kbd>↓</kbd> history · <kbd>Ctrl+Z</kbd> leave config</span><span class="bb-step" id="bb-step"></span>';
   document.body.appendChild(bottom);
+  if (inkReady) mountInkTools(bottom, bottom.querySelector('.bb-keys')).classList.add('bb-ink');
   let bbSig = '';
   function updateBar() {
     const d = TOPO.devices[activeDev], s = STEPS[cur], sig = [activeDev, lab.prompt(activeDev), cur, done.size].join('|');
