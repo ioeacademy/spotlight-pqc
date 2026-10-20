@@ -36,12 +36,7 @@ select, input[type=text] { font: inherit; font-size: 12px; color: var(--text); b
 .btn:hover { filter: brightness(1.08); }
 
 /* layout */
-.app { display: grid; grid-template-columns: 190px 1fr; gap: 12px; padding: 12px 16px 24px; }
-.toolbox { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 10px; align-self: start; position: sticky; top: 64px; }
-.toolbox h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-.tb-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-bottom: 6px; border-radius: 8px; color: #fff; font-weight: 600; font-size: 12px; cursor: grab; opacity: .95; }
-.tb-item::after { content: '⠿'; margin-left: auto; opacity: .7; }
-.tb-note { font-size: 11px; color: var(--muted); margin-top: 10px; line-height: 1.45; }
+.app { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 12px 16px 24px; }
 
 .main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .stage { position: relative; display: grid; grid-template-columns: 1fr 120px 1fr; gap: 0; }
@@ -129,7 +124,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
 .feedback { background: var(--panel); border: 1px dashed var(--accent); border-radius: 12px; padding: 10px 14px; font-size: 12.5px; line-height: 1.5; }
 .feedback b { color: var(--accent); }
 
-/* 4-chunk map (Reach → Agree → Trust → Protect) */
+/* 4-chunk map (Networking → Negotiation → Authentication → Protect) */
 :root { --ck-reach: #2f7fc1; --ck-agree: #0f8aa6; --ck-trust: #12936f; --ck-protect: #7c4dff; }
 .chunks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .chunk { font: inherit; text-align: left; display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 2px 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; border-bottom-width: 4px; position: relative; }
@@ -172,10 +167,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
   .chunks { grid-template-columns: repeat(2, 1fr); }
   .chunk::after { content: none; }
   .app { grid-template-columns: 1fr; }
-  .toolbox { position: static; display: flex; flex-wrap: wrap; gap: 6px; }
-  .toolbox h3, .tb-note { width: 100%; }
-  .tb-item { margin: 0; }
-  .stage { grid-template-columns: 1fr; gap: 10px; }
+        .stage { grid-template-columns: 1fr; gap: 10px; }
   .gutter { display: none; }
   svg.lines { display: none; }
   .bottom { grid-template-columns: 1fr; }
@@ -224,18 +216,6 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
 </header>
 
 <div class="app">
-  <aside class="toolbox" aria-label="Block toolbox">
-    <h3>Toolbox</h3>
-    <div class="tb-item tunnel">Tunnel</div>
-    <div class="tb-item ipsec">IPsec profile</div>
-    <div class="tb-item ts">Transform set</div>
-    <div class="tb-item ike">IKEv2 profile</div>
-    <div class="tb-item prop">IKEv2 proposal</div>
-    <div class="tb-item frag">Fragmentation</div>
-    <div class="tb-item route">Static route</div>
-    <div class="tb-item" style="background:#8a5a00">PPK <small>(phase 2)</small></div>
-    <p class="tb-note">In the prototype you drag these into a router. In this mockup the blocks are already placed: edit the fields and watch the lines between the peers.</p>
-  </aside>
 
   <main class="main">
     <div class="goal-banner" id="goal" hidden></div>
@@ -268,7 +248,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
       (3) The <b>checklist</b> follows the order of the IKEv2 handshake. Hover an item to highlight its lines.
       (4) <b>Apply</b> sends the generated IOS to the real v3 simulator and shows whether the tunnel comes up.
       (5) In the <b>IKEv2 proposal</b>, click the chips to choose each router's preferences (the number is the order). The line between the two lists turns <b>green only when they overlap</b> and shows the agreed value; red = no overlap and the tunnel fails; grey = not configured yet or a non-fatal mismatch.
-      (6) <b>Learning aids:</b> the four steps <b>1 Reach → 2 Agree → 3 Trust → 4 Protect</b> (click one to focus on it); <b>Complete the peer</b> mode (R1 is locked, you build R3); <b>Feedback: After Apply</b> hides the lines until you test; <b>Predict first</b> asks for your prediction before each Apply.
+      (6) <b>Learning aids:</b> the four steps <b>1 Networking → 2 Negotiation → 3 Authentication → 4 Protect</b> (click one to focus on it); <b>Complete the peer</b> mode (R1 is locked, you build R3); <b>Feedback: After Apply</b> hides the lines until you test; <b>Predict first</b> asks for your prediction before each Apply.
       Try the <b>Concepts</b> view and the scenarios at the top.
     </div>
   </main>
@@ -301,9 +281,9 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
   let cfg, neg = {};
   /* learning-design state */
   const CHUNKS = [
-    { id: 'reach', n: 1, label: 'Reach', q: 'Can the two routers talk?' },
-    { id: 'agree', n: 2, label: 'Agree', q: 'Which crypto will we use?' },
-    { id: 'trust', n: 3, label: 'Trust', q: 'Who are you, really?' },
+    { id: 'reach', n: 1, label: 'Networking', q: 'Can the two routers talk?' },
+    { id: 'agree', n: 2, label: 'Negotiation', q: 'Which crypto will we use?' },
+    { id: 'trust', n: 3, label: 'Authentication', q: 'Who are you, really?' },
     { id: 'protect', n: 4, label: 'Protect', q: 'How is the data encrypted?' },
   ];
   const RULE_CHUNK = { route: 'reach', ends: 'reach', prop: 'agree', pqc: 'agree', frag: 'agree', id: 'trust', psk: 'trust', ts: 'protect', tun: 'protect', pfs: 'protect' };
@@ -537,7 +517,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
           rs.map(r => `<li class="${r.status}" data-r="${r.id}"><span class="ic">${ICON[r.status]}</span><span class="t">${r.title}<span class="ph">${r.phase}</span></span><span class="m">${r.msg}</span></li>`).join('');
       }).join('');
     } else {
-      $('#checks').innerHTML = `<li class="hidden-fb">Feedback is set to <b>After Apply</b>. Check the agreement between R1 and R3 yourself, step by step (Reach → Agree → Trust → Protect), then press <b>▶ Apply</b> to see the lines and the checklist.</li>`;
+      $('#checks').innerHTML = `<li class="hidden-fb">Feedback is set to <b>After Apply</b>. Check the agreement between R1 and R3 yourself, step by step (Networking → Negotiation → Authentication → Protect), then press <b>▶ Apply</b> to see the lines and the checklist.</li>`;
     }
     $('#checks').querySelectorAll('li[data-r]').forEach(li => {
       li.addEventListener('mouseenter', () => drawLines(li.dataset.r));
@@ -553,7 +533,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
     g.hidden = false;
     if (g.classList.contains('done')) return;
     g.innerHTML = `<b>Goal:</b> R1 is the reference (locked). Build <b>R3</b> so that the tunnel comes up with a <b>quantum-safe (ML-KEM)</b> key exchange.
-      Work one step at a time: <b>1 Reach</b> → <b>2 Agree</b> → <b>3 Trust</b> → <b>4 Protect</b>. Click a step above to focus on its blocks, then <b>▶ Apply</b> to test.`;
+      Work one step at a time: <b>1 Networking</b> → <b>2 Negotiation</b> → <b>3 Authentication</b> → <b>4 Protect</b>. Click a step above to focus on its blocks, then <b>▶ Apply</b> to test.`;
   }
   function paintChips() {
     document.querySelectorAll('.copt').forEach(btn => {
