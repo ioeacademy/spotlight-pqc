@@ -1,7 +1,7 @@
 /* Replays every quick-lab track's "Show Me" commands on a fresh lab and checks each step validates.
    usage: node test/run-tests.js */
 const { Lab } = require('../../v3-three-router/js/ios-pqc-engine.js');
-const TOPO = require('../../v3-three-router/js/lab-topology.js');
+const TOPO = require('../js/quick-topology.js');
 const { TRACKS, BY_ID } = require('../js/quick-steps.js');
 
 let fails = 0;

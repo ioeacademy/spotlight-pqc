@@ -2016,7 +2016,7 @@
             tunnel: k === 'tunnel' ? { source: '', dest: '', mode: 'gre ip', protection: '', lineUp: false, downAt: old ? old.downAt : lab.now(), upAt: old ? old.upAt : null, lastDownReason: old ? old.lastDownReason : null } : null,
             boot: false, createdAt: lab.now(), cnt: { inP: 0, outP: 0, inB: 0, outB: 0, last: null } };
           // a new Tunnel logs its line protocol going down 1–2 s after it is created (gre_cml_dataset E1/E4/E5)
-          if (k === 'tunnel') { const me = d.ifaces[name]; (lab.laterLogs = lab.laterLogs || []).push({ at: lab.now() + 1500, devKey: d.key, msg: `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${name}, changed state to down`, check: () => d.ifaces[name] === me }); }
+          if (k === 'tunnel') { const me = d.ifaces[name]; (lab.laterLogs = lab.laterLogs || []).push({ at: lab.now() + 1500, devKey: d.key, msg: `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${name}, changed state to down`, check: () => d.ifaces[name] === me && !lab.lineUp(d.key, name) }); }   // not once it is already up
           if (k === 'loopback') { lab._log(d.key, `%LINK-3-UPDOWN: Interface ${name}, changed state to up`); lab._log(d.key, `%LINEPROTO-5-UPDOWN: Line protocol on Interface ${name}, changed state to up`); }
         }
         d.mode = 'if'; d.ctx = { iface: name }; return [];

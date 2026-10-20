@@ -47,11 +47,12 @@
   const EDU_NOTICE = callout('edu', `<b>🎓 For learning only.</b> This is a simulator to practise IOS XE commands and get familiar with VPN and post-quantum concepts. It is not a real router: output can differ from real platforms, so <b>don't use it to validate configurations</b>. Provided <b>as is</b>, with no warranty and no support. <a href="https://github.com/ioeacademy/spotlight-pqc/blob/main/DISCLAIMER.md" target="_blank" rel="noopener">Full disclaimer</a>.`);
   const LAB_TABLE = `<table class="t mono">
 <tr><th></th><th>Role</th><th>WAN interface</th><th>Address</th></tr>
-<tr><td>R1</td><td>VPN peer</td><td>Tw0/0/0</td><td>10.0.12.1/24</td></tr>
-<tr><td rowspan="2">R2</td><td rowspan="2">Transit ("the WAN")</td><td>Tw0/0/0</td><td>10.0.12.2/24</td></tr>
-<tr><td>Tw0/0/1</td><td>10.0.23.1/24</td></tr>
-<tr><td>R3</td><td>VPN peer</td><td>Tw0/0/0</td><td>10.0.23.2/24</td></tr>
+<tr><td>R1</td><td>VPN peer</td><td>Tw0/0/0</td><td>192.0.12.1/30</td></tr>
+<tr><td rowspan="2">R2</td><td rowspan="2">Transit ("the WAN")</td><td>Tw0/0/0</td><td>192.0.12.2/30</td></tr>
+<tr><td>Tw0/0/1</td><td>192.0.23.1/30</td></tr>
+<tr><td>R3</td><td>VPN peer</td><td>Tw0/0/0</td><td>192.0.23.2/30</td></tr>
 </table>
+<p>The WAN links use <b>public-style</b> addresses, as an Internet link would, each a /30 with one address per end; the third octet names the link (<b>12</b> = R1–R2, <b>23</b> = R2–R3). They are lab addresses only: outside a closed lab use the <a href="https://www.rfc-editor.org/rfc/rfc5737" target="_blank" rel="noopener">RFC 5737</a> example ranges.</p>
 <p>The tunnel runs between R1 and R3 and uses the overlay network <code>192.168.100.0/24</code> (R1 = .1, R3 = .2).</p>`;
   const HOW = callout('info', 'Type commands in the console on the right (<kbd>?</kbd> for help, <kbd>Tab</kbd> to complete). Each step checks the <i>real state</i> of the simulated routers. Stuck? <b>Show Me</b> types the commands for you.');
 
@@ -96,10 +97,10 @@
       ...tunnel(tunIp, peer), ` tunnel protection ipsec profile ${name}-IPSEC`,
       'end'];
   }
-  const R1_CLASSIC = vpnConfig({ name: 'CLASSIC', peerName: 'R3', peer: '10.0.23.2', tunIp: '192.168.100.1' });
-  const R3_CLASSIC = vpnConfig({ name: 'CLASSIC', peerName: 'R1', peer: '10.0.12.1', tunIp: '192.168.100.2' });
-  const R1_PQC = vpnConfig({ name: 'PQC', peerName: 'R3', peer: '10.0.23.2', tunIp: '192.168.100.1', pqc: 'mlkem768', pfs: true, frag: true });
-  const R3_PQC = vpnConfig({ name: 'PQC', peerName: 'R1', peer: '10.0.12.1', tunIp: '192.168.100.2', pqc: 'mlkem768', pfs: true, frag: true });
+  const R1_CLASSIC = vpnConfig({ name: 'CLASSIC', peerName: 'R3', peer: '192.0.23.2', tunIp: '192.168.100.1' });
+  const R3_CLASSIC = vpnConfig({ name: 'CLASSIC', peerName: 'R1', peer: '192.0.12.1', tunIp: '192.168.100.2' });
+  const R1_PQC = vpnConfig({ name: 'PQC', peerName: 'R3', peer: '192.0.23.2', tunIp: '192.168.100.1', pqc: 'mlkem768', pfs: true, frag: true });
+  const R3_PQC = vpnConfig({ name: 'PQC', peerName: 'R1', peer: '192.0.12.1', tunIp: '192.168.100.2', pqc: 'mlkem768', pfs: true, frag: true });
 
   const BLOCKS = `<table class="t">
 <tr><th>Block</th><th>What it does</th></tr>
@@ -117,17 +118,17 @@
     id: 'underlay', title: 'Connect R1 and R3 through R2', part: 'base', devices: ['r1', 'r3'],
     html: `
 <p>Before any VPN, the two peers must reach each other over the WAN. R1 and R3 are not directly connected: each needs a static route through R2.</p>
-${cfg('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end'])}
-${cfg('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end'])}
-${cfg('r1', ['ping 10.0.23.2'], 'test')}
+${cfg('r1', ['configure terminal', 'ip route 192.0.23.0 255.255.255.252 192.0.12.2', 'end'])}
+${cfg('r3', ['configure terminal', 'ip route 192.0.12.0 255.255.255.252 192.0.23.1', 'end'])}
+${cfg('r1', ['ping 192.0.23.2'], 'test')}
 ${callout('tip', 'The first ping may show <code>.!!!!</code>: the first packet is lost while ARP resolves the next hop.')}
-<div class="goal">Goal: <code>ping 10.0.23.2</code> from R1 succeeds.</div>`,
-    run: [['r1', 'enable'], ...runOf('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end']),
-      ['r3', 'enable'], ...runOf('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end']), ['r1', 'ping 10.0.23.2']],
-    validate: ctx => ctx.lab.reach('r1', '10.0.23.2') && pingOk(ctx, 'r1', '10.0.23.2'),
+<div class="goal">Goal: <code>ping 192.0.23.2</code> from R1 succeeds.</div>`,
+    run: [['r1', 'enable'], ...runOf('r1', ['configure terminal', 'ip route 192.0.23.0 255.255.255.252 192.0.12.2', 'end']),
+      ['r3', 'enable'], ...runOf('r3', ['configure terminal', 'ip route 192.0.12.0 255.255.255.252 192.0.23.1', 'end']), ['r1', 'ping 192.0.23.2']],
+    validate: ctx => ctx.lab.reach('r1', '192.0.23.2') && pingOk(ctx, 'r1', '192.0.23.2'),
     hints: [
-      { when: (d, c) => d === 'r1' && /^ip route 10\.0\.23\.0 255\.255\.255\.0 10\.0\.23\.1/.test(c), text: 'From R1 the next hop is R2 on R1\'s own subnet: <code>10.0.12.2</code>.' },
-      { when: (d, c, r, lab) => d === 'r1' && /^ping 10\.0\.23\.2/.test(c) && lab.dev('r1').routes.length && !lab.dev('r3').routes.length, text: 'R1 has its route, but R3 also needs a route back. Add it on <b>R3</b>.' },
+      { when: (d, c) => d === 'r1' && /^ip route 192\.0\.23\.0 255\.255\.255\.252 192\.0\.23\.1/.test(c), text: 'From R1 the next hop is R2 on R1\'s own subnet: <code>192.0.12.2</code>.' },
+      { when: (d, c, r, lab) => d === 'r1' && /^ping 192\.0\.23\.2/.test(c) && lab.dev('r1').routes.length && !lab.dev('r3').routes.length, text: 'R1 has its route, but R3 also needs a route back. Add it on <b>R3</b>.' },
     ],
   };
   const verifyStep = (id, title, { pqc }) => ({
@@ -175,18 +176,18 @@ ${blocks('r1', R1_CLASSIC)}
 </table>
 ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value. Real pre-shared keys must be long and random.`)}
 ${callout('info', '<b>Smart defaults.</b> The proposal and policy are optional: with no complete IKEv2 policy configured, IOS XE uses its built-in <code>default</code> policy and <code>default</code> proposal (AES-CBC-256, SHA512/SHA384, DH 19/14/21). Check with <code>show crypto ikev2 proposal default</code>. This lab configures them explicitly so both ends agree on group 20, and because the PQC labs add ML-KEM to the proposal.')}
-<div class="goal">Goal: R1 has a complete VPN configuration towards 10.0.23.2.</div>`,
+<div class="goal">Goal: R1 has a complete VPN configuration towards 192.0.23.2.</div>`,
       run: runOf('r1', R1_CLASSIC),
-      validate: ctx => chainTo(ctx.lab, 'r1', '10.0.23.2'),
+      validate: ctx => chainTo(ctx.lab, 'r1', '192.0.23.2'),
       hints: [
-        { when: (d, c) => d === 'r1' && /^tunnel destination 10\.0\.12\.2/.test(c), text: 'The tunnel ends on <b>R3</b> (10.0.23.2), not on R2.' },
+        { when: (d, c) => d === 'r1' && /^tunnel destination 192\.0\.12\.2/.test(c), text: 'The tunnel ends on <b>R3</b> (192.0.23.2), not on R2.' },
         { when: (d, c, r, lab) => d === 'r1' && /^tunnel protection/.test(c) && !Object.keys(lab.dev('r1').crypto.ipsecProfiles).length, text: 'Create the <code>crypto ipsec profile</code> first.' },
       ],
     },
     {
       id: 'c-r3', title: 'Mirror it on R3', part: 'base', devices: ['r3'],
       html: `
-<p>R3 is the mirror image: the peer is R1 (10.0.12.1) and the tunnel address is .2.</p>
+<p>R3 is the mirror image: the peer is R1 (192.0.12.1) and the tunnel address is .2.</p>
 ${blocks('r3', R3_CLASSIC)}
 <p>When both sides match, IKEv2 negotiates on its own: watch for <code>%CRYPTO-5-IKEV2_SESSION_STATUS ... UP</code> and the arc on the topology.</p>
 ${callout('info', 'If the arc stays dashed (grey while negotiating, red with a <b>DOWN</b> badge when it fails), click it: the handshake inspector tells you which setting doesn\'t match.')}
@@ -194,7 +195,7 @@ ${callout('info', 'If the arc stays dashed (grey while negotiating, red with a <
       run: runOf('r3', R3_CLASSIC),
       validate: ctx => !!sa13(ctx.lab),
       hints: [
-        { when: (d, c) => d === 'r3' && /^address 10\.0\.23/.test(c), text: 'On R3 the peer is <b>R1</b>: <code>address 10.0.12.1</code>.' },
+        { when: (d, c) => d === 'r3' && /^address 192\.0\.23/.test(c), text: 'On R3 the peer is <b>R1</b>: <code>address 192.0.12.1</code>.' },
         { when: (d, c) => d === 'r3' && /^pre-shared-key /.test(c) && !c.includes(PSK), text: `The key must be identical on both peers: <code>${PSK}</code>.` },
       ],
     },
@@ -241,9 +242,9 @@ ${blocks('r1', R1_PQC)}
 <tr><td><code>set pfs</code></td><td>Without a group: inherits DH group 20 <i>and</i> ML-KEM from the IKE SA.</td></tr>
 </table>
 ${callout('warn', `<b>Lab-only key.</b> <code>${PSK}</code> is a teaching value. Real pre-shared keys must be long and random.`)}
-<div class="goal">Goal: R1 has a complete VPN configuration towards 10.0.23.2, with ML-KEM in its proposal.</div>`,
+<div class="goal">Goal: R1 has a complete VPN configuration towards 192.0.23.2, with ML-KEM in its proposal.</div>`,
       run: runOf('r1', R1_PQC),
-      validate: ctx => chainTo(ctx.lab, 'r1', '10.0.23.2') && proposalsOf(ctx.lab, 'r1').some(p => p.pqc),
+      validate: ctx => chainTo(ctx.lab, 'r1', '192.0.23.2') && proposalsOf(ctx.lab, 'r1').some(p => p.pqc),
       hints: [pqcUnused, { when: (d, c) => d === 'r1' && /^pqc mlkem768 required/.test(c), text: 'There is no <code>required</code> keyword: <code>pqc mlkem768</code> on its own is already mandatory.' }],
     },
     {
@@ -256,7 +257,7 @@ ${blocks('r3', R3_PQC)}
       run: runOf('r3', R3_PQC),
       validate: ctx => !!(sa13(ctx.lab) && sa13(ctx.lab).params.pqc === 'mlkem768'),
       hints: [
-        { when: (d, c) => d === 'r3' && /^address 10\.0\.23/.test(c), text: 'On R3 the peer is <b>R1</b>: <code>address 10.0.12.1</code>.' },
+        { when: (d, c) => d === 'r3' && /^address 192\.0\.23/.test(c), text: 'On R3 the peer is <b>R1</b>: <code>address 192.0.12.1</code>.' },
         { when: (d, c, r, lab) => d === 'r3' && /^end$/.test(c) && !proposalsOf(lab, 'r3').some(p => p.pqc) && proposalsOf(lab, 'r1').some(p => p.pqc && p.pqc.mode === 'required'), text: 'R1 requires ML-KEM. Without <code>pqc mlkem768</code> on R3 the negotiation fails with NO_PROPOSAL_CHOSEN.' },
       ],
     },
@@ -316,7 +317,7 @@ ${HOW}`,
       html: `
 <p>Build the classic VPN on both routers. It's the same configuration as the Classic tutorial:</p>
 ${blocks('r1', R1_CLASSIC)}
-<h4>R3 — the mirror image: peer R1 (10.0.12.1), tunnel .2</h4>
+<h4>R3 — the mirror image: peer R1 (192.0.12.1), tunnel .2</h4>
 ${blocks('r3', R3_CLASSIC)}
 <p>Then look at the SA:</p>
 ${cfg('r1', ['show crypto ikev2 sa'])}
@@ -325,7 +326,7 @@ ${callout('warn', '<b>The starting point is classical:</b> only ECDH group 20 pr
 <div class="goal">Goal: a classic IKEv2 SA between R1 and R3, checked with <code>show crypto ikev2 sa</code>.</div>`,
       run: [...runOf('r1', R1_CLASSIC), ...runOf('r3', R3_CLASSIC), ['r1', 'ping 192.168.100.2'], ['r1', 'show crypto ikev2 sa']],
       validate: ctx => !!sa13(ctx.lab) && ran(ctx, 'r1', /^show crypto ikev2 sa/),
-      hints: [{ when: (d, c) => d === 'r3' && /^address 10\.0\.23/.test(c), text: 'On R3 the peer is <b>R1</b>: <code>address 10.0.12.1</code>.' }],
+      hints: [{ when: (d, c) => d === 'r3' && /^address 192\.0\.23/.test(c), text: 'On R3 the peer is <b>R1</b>: <code>address 192.0.12.1</code>.' }],
     },
     {
       id: 'm-frag', title: 'Step 1 · Enable IKEv2 fragmentation', part: 'pqc', devices: ['r1', 'r3'],
@@ -439,7 +440,7 @@ ${callout('info', 'With many sites, upgrade the <b>hub</b> first with <code>opti
      C0–C8 were captured on CML; M2 is backed by real C8235-G2 output; M1/M4 are inferred.        */
   const NAMES = { prop: 'VPN-PROP', pol: 'VPN-POL', keys: 'VPN-KEYS', prof: 'VPN-PROF', ts: 'VPN-TS', ipsec: 'VPN-IPSEC' };
   const NEG_BASE = { enc: ['aes-cbc-256'], integ: ['sha512'], group: [20], pqc: 'none', optional: false, ts: 'esp-gcm 256', psk: PSK };
-  const BASE = { r1: { ...NEG_BASE, peerId: '10.0.23.2' }, r3: { ...NEG_BASE, peerId: '10.0.12.1' } };
+  const BASE = { r1: { ...NEG_BASE, peerId: '192.0.23.2' }, r3: { ...NEG_BASE, peerId: '192.0.12.1' } };
   const SCENARIOS = [
     { id: 'C0', title: 'Baseline: both ends identical', label: 'observed', initiator: 'r1', r1: {}, r3: {} },
     { id: 'C1', title: 'Encryption differs (R3 aes-cbc-128)', label: 'observed', initiator: 'r3', r1: {}, r3: { enc: ['aes-cbc-128'] } },
@@ -449,7 +450,7 @@ ${callout('info', 'With many sites, upgrade the <b>hub</b> first with <code>opti
     { id: 'C5', title: 'Responder lists group 21 20, initiator only 20: no retry', label: 'observed', initiator: 'r3', r1: { group: [21, 20] }, r3: {} },
     { id: 'C6', title: 'ESP transform set differs', label: 'observed', initiator: 'r1', r1: {}, r3: { ts: 'esp-aes 256 esp-sha256-hmac' } },
     { id: 'C7', title: 'Pre-shared key differs', label: 'observed', initiator: 'r3', r1: {}, r3: { psk: 'Wr0ngKey-lab' } },
-    { id: 'C8', title: 'R3 expects another peer identity (10.0.12.99): half-open', label: 'observed', initiator: 'r3', r1: {}, r3: { peerId: '10.0.12.99' } },
+    { id: 'C8', title: 'R3 expects another peer identity (192.0.12.99): half-open', label: 'observed', initiator: 'r3', r1: {}, r3: { peerId: '192.0.12.99' } },
     { id: 'M1', title: 'ML-KEM required on R1, none on R3', label: 'inferred', initiator: 'r3', r1: { pqc: 'mlkem768' }, r3: {} },
     { id: 'M2', title: 'ML-KEM optional on R1, none on R3: silent fallback', label: 'derived', initiator: 'r3', r1: { pqc: 'mlkem768', optional: true }, r3: {} },
     { id: 'M4', title: 'ML-KEM 768 on R1, 1024 on R3, both required', label: 'inferred', initiator: 'r3', r1: { pqc: 'mlkem768' }, r3: { pqc: 'mlkem1024' } },
@@ -470,9 +471,9 @@ ${callout('info', 'With many sites, upgrade the <b>hub</b> first with <code>opti
   }
   const NEG = { NAMES, BASE, SCENARIOS, TUN: { r1: '192.168.100.1', r3: '192.168.100.2' }, commands: negCommands,
     apply: (sc, dev) => JSON.parse(JSON.stringify({ ...BASE[dev], ...sc[dev] })) };
-  const R1_NEG = [...vpnConfig({ name: 'VPN', peerName: 'R3', peer: '10.0.23.2', tunIp: '192.168.100.1', pfs: true, frag: true }).slice(0, -1), 'end']
+  const R1_NEG = [...vpnConfig({ name: 'VPN', peerName: 'R3', peer: '192.0.23.2', tunIp: '192.168.100.1', pfs: true, frag: true }).slice(0, -1), 'end']
     .map(l => l.replace('VPN-POLICY', NAMES.pol).replace('VPN-PROPOSAL', NAMES.prop).replace('VPN-KEYRING', NAMES.keys).replace('VPN-PROFILE', NAMES.prof));
-  const R3_NEG = [...vpnConfig({ name: 'VPN', peerName: 'R1', peer: '10.0.12.1', tunIp: '192.168.100.2', pfs: true, frag: true }).slice(0, -1), 'end']
+  const R3_NEG = [...vpnConfig({ name: 'VPN', peerName: 'R1', peer: '192.0.12.1', tunIp: '192.168.100.2', pfs: true, frag: true }).slice(0, -1), 'end']
     .map(l => l.replace('VPN-POLICY', NAMES.pol).replace('VPN-PROPOSAL', NAMES.prop).replace('VPN-KEYRING', NAMES.keys).replace('VPN-PROFILE', NAMES.prof));
   // negotiation attempts since the step started
   const negSince = (ctx, test) => ctx.lab.negLog.filter(e => e.seq > ctx.since).some(test);
@@ -500,15 +501,15 @@ ${LAB_TABLE}`,
       id: 'n-build', title: 'Build the baseline on both routers', part: 'base', devices: ['r1', 'r3'],
       html: `
 <p>Both ends start identical: <code>aes-cbc-256 / sha512 / group 20</code>, the same pre-shared key and the transform set <code>esp-gcm 256</code>. Turn on <code>debug crypto ikev2 error</code> on both routers so the negotiation errors appear in the consoles.</p>
-${cfg('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end'])}
-${cfg('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end'])}
+${cfg('r1', ['configure terminal', 'ip route 192.0.23.0 255.255.255.252 192.0.12.2', 'end'])}
+${cfg('r3', ['configure terminal', 'ip route 192.0.12.0 255.255.255.252 192.0.23.1', 'end'])}
 ${blocks('r1', R1_NEG)}
 ${blocks('r3', R3_NEG)}
 ${cfg('r1', ['debug crypto ikev2 error', 'ping 192.168.100.2'])}
 ${cfg('r3', ['debug crypto ikev2 error'])}
 ${callout('tip', 'The baseline also logs <code>% IKEv2 profile not found</code> and <code>Error constructing config reply</code> on one router. That is harmless config-exchange noise, seen on real routers too: the tunnel is fine. Don\'t chase it.')}
 <div class="goal">Goal: the R1–R3 tunnel is up and <code>debug crypto ikev2 error</code> is on, on both routers.</div>`,
-      run: [['r1', 'enable'], ...runOf('r1', ['configure terminal', 'ip route 10.0.23.0 255.255.255.0 10.0.12.2', 'end']), ['r3', 'enable'], ...runOf('r3', ['configure terminal', 'ip route 10.0.12.0 255.255.255.0 10.0.23.1', 'end']),
+      run: [['r1', 'enable'], ...runOf('r1', ['configure terminal', 'ip route 192.0.23.0 255.255.255.252 192.0.12.2', 'end']), ['r3', 'enable'], ...runOf('r3', ['configure terminal', 'ip route 192.0.12.0 255.255.255.252 192.0.23.1', 'end']),
         ...runOf('r1', R1_NEG), ...runOf('r3', R3_NEG), ['r1', 'debug crypto ikev2 error'], ['r3', 'debug crypto ikev2 error'], ['r1', 'ping 192.168.100.2']],
       validate: ctx => upNow(ctx.lab) && ['r1', 'r3'].every(k => ctx.lab.dev(k).debug.err || ctx.lab.dev(k).debug.ikev2),
       hints: [{ when: (d, c) => /^debug crypto ikev2$/.test(c), text: 'Full debugging works too, but it is verbose. <code>debug crypto ikev2 error</code> shows only the lines that matter here.' }],
@@ -552,7 +553,7 @@ ${callout('info', 'On IOS XE, when that first Child SA fails, the router deletes
       html: `
 <p>Authentication comes <b>after</b> the algorithms are agreed, in IKE_AUTH.</p>
 <ul><li><b>C7</b>: different pre-shared keys → <code>Failed to authenticate the IKE SA</code> on both routers.</li>
-<li><b>C8</b>: R3's profile expects R1 at <code>10.0.12.99</code>. With R3 initiating, R1 accepts R3 and installs its SAs; R3 only then rejects R1's identity. Result: a <b>half-open</b> tunnel. R1 shows READY and keeps encrypting; R3 has no SA and drops the packets with <code>%CRYPTO-4-RECVD_PKT_INV_SPI</code>.</li></ul>
+<li><b>C8</b>: R3's profile expects R1 at <code>192.0.12.99</code>. With R3 initiating, R1 accepts R3 and installs its SAs; R3 only then rejects R1's identity. Result: a <b>half-open</b> tunnel. R1 shows READY and keeps encrypting; R3 has no SA and drops the packets with <code>%CRYPTO-4-RECVD_PKT_INV_SPI</code>.</li></ul>
 ${PANEL_TIP}
 ${callout('tip', 'Run C8 a second time with <b>R1</b> initiating. What changes, and why? (Hint: the responder checks the identity <i>before</i> it answers.) Always check <b>both</b> peers.')}
 <div class="goal">Goal: see an authentication failure and a half-open tunnel.</div>`,
