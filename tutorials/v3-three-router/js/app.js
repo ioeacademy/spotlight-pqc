@@ -992,7 +992,19 @@ SK_pi' = prf+(PPK, SK_pi)    SK_pr' = prf+(PPK, SK_pr)   ← RFC 8784: PPK "${es
   setupWhiteboard();   // after the consoles and steps exist: they get drawing overlays
   refresh();
   activate(0);
-  setInterval(() => { lab.tick(); flushLogs(); refresh(); checkStep(); if (inspKey) renderInspector(); }, 500);
+  /* bottom bar: lifts the console's last line off the screen edge, and shows where you are */
+  const bottom = document.createElement('footer'); bottom.className = 'bottombar'; bottom.setAttribute('aria-label', 'Status');
+  bottom.innerHTML = '<span class="bb-dev" id="bb-dev"></span><span class="bb-keys"><kbd>?</kbd> help · <kbd>Tab</kbd> complete · <kbd>↑</kbd><kbd>↓</kbd> history · <kbd>Ctrl+Z</kbd> leave config</span><span class="bb-step" id="bb-step"></span>';
+  document.body.appendChild(bottom);
+  let bbSig = '';
+  function updateBar() {
+    const d = TOPO.devices[activeDev], s = STEPS[cur], sig = [activeDev, lab.prompt(activeDev), cur, done.size].join('|');
+    if (sig === bbSig) return; bbSig = sig;
+    $('#bb-dev').innerHTML = `<b>${esc(d.hostname)}</b> · ${esc(d.role)} · <code>${esc(lab.prompt(activeDev))}</code>`;
+    $('#bb-step').textContent = s ? `Step ${cur + 1} of ${STEPS.length} · ${s.title}` : '';
+  }
+  updateBar();
+  setInterval(() => { lab.tick(); flushLogs(); refresh(); checkStep(); if (inspKey) renderInspector(); updateBar(); }, 500);
   let fsSaved = 's'; try { fsSaved = localStorage.getItem('spq-fs') || 's'; } catch (e) { }
   topoReady = true; setFont(fsSaved, false);
   window.__lab = lab; // for debugging in the console

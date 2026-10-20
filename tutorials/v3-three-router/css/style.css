@@ -279,7 +279,7 @@ body.inking, body.inking * { -webkit-user-select: none !important; user-select: 
 .term-tool:hover { color: var(--term-strong); border-color: var(--term-muted); }
 .term-tool:focus-visible { outline: 2px solid var(--term-caret); outline-offset: 1px; }
 .terms { flex: 1; min-height: 0; position: relative; }
-.term { position: absolute; inset: 0; overflow: auto; padding: 10px 14px; font-family: var(--font-mono); font-size: calc(14px * var(--fs)); line-height: 1.55; color: var(--term-text); cursor: text; display: none; }
+.term { position: absolute; inset: 0; overflow: auto; padding: 10px 14px 28px; font-family: var(--font-mono); font-size: calc(14px * var(--fs)); line-height: 1.55; color: var(--term-text); cursor: text; display: none; }
 .term.active { display: block; }
 .term .ln { white-space: pre; min-height: 1.5em; }
 .term .ln.log, .term .ln.debug, .term .ln.term-banner { white-space: pre-wrap; word-break: break-word; }
@@ -386,3 +386,13 @@ body.inking, body.inking * { -webkit-user-select: none !important; user-select: 
 .th-sub { display: block; font-weight: 400; font-size: 12px; color: var(--muted); }
 .term .warn { color: var(--term-log); }
 .sw.gre { background: repeating-linear-gradient(90deg, var(--gre) 0 2px, transparent 2px 6px); }
+
+/* bottom bar: keeps the console prompt off the screen edge; device + prompt, shortcuts, current step */
+.bottombar { flex-shrink: 0; display: flex; align-items: center; gap: 8px 20px; min-height: 40px; padding: 6px 16px; border-top: 1px solid var(--line-subtle); background: var(--tint); color: var(--ink); font-size: 13px; line-height: 18px; }
+.bottombar code { font-family: var(--font-mono); font-size: 12.5px; }
+.bottombar kbd { font-family: var(--font-mono); font-size: 11px; line-height: 14px; padding: 0 4px; border: 1px solid var(--line-subtle); border-radius: 4px; background: var(--surface); color: var(--ink); }
+.bb-dev { white-space: nowrap; }
+.bb-keys { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bb-step { margin-left: auto; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+@media (max-width: 960px) { .bb-keys { display: none; } }
+@media (max-width: 900px) { .bottombar { min-height: 34px; } .bb-step { display: none; } }
