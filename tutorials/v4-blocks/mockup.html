@@ -35,6 +35,42 @@ select, input[type=text] { font: inherit; font-size: 12px; color: var(--text); b
 .btn { font: inherit; font-size: 12px; font-weight: 600; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 99px; padding: 6px 16px; cursor: pointer; }
 .btn:hover { filter: brightness(1.08); }
 
+/* topology card (same drawing style as the GRE and quick labs) */
+.topo-card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.topo-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.topo-sub { color: var(--muted); }
+.zoom-ctl { margin-left: auto; display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.zoom-ctl button { font: inherit; font-size: 12px; min-width: 26px; padding: 2px 6px; border: 0; background: transparent; color: var(--text); cursor: pointer; font-variant-numeric: tabular-nums; }
+.zoom-ctl button + button { border-left: 1px solid var(--border); }
+.zoom-ctl button:disabled { opacity: .45; cursor: default; }
+.zoom-ctl #z-pct { min-width: 46px; }
+#topo { display: block; width: 100%; height: 260px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.topo-resize { height: 6px; cursor: row-resize; background: var(--border); }
+.topo-resize:hover, .topo-resize.drag { background: var(--accent); }
+#topo text { font-family: var(--font); fill: var(--text); }
+#topo .t-ip { font-family: var(--mono); font-size: 17px; font-weight: 700; }
+#topo .t-port { font-size: 15px; fill: var(--muted); }
+#topo .t-link { font-size: 15px; fill: var(--muted); }
+#topo .t-host { font-size: 22px; font-weight: 700; }
+#topo .t-role { font-size: 15px; fill: var(--muted); }
+#topo .cloud { fill: var(--panel-2); stroke: var(--border); stroke-width: 1.5; }
+#topo .cloud-lbl { font-size: 14px; font-weight: 700; fill: var(--muted); letter-spacing: .06em; }
+#topo .cloud-note { font-size: 13px; fill: var(--muted); }
+#topo .link { stroke: #8a939e; stroke-width: 2; }
+#topo .link.miss { stroke: var(--fail); stroke-dasharray: 6 5; }
+#topo .r-body, #topo .r-top { fill: var(--panel); stroke: url(#g-router); stroke-width: 2.2; }
+#topo .r-top { fill: #f2f7ff; }
+#topo .r-arrow { stroke: #0a60ff; stroke-width: 2.2; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+#topo .tun { fill: none; stroke-width: 4; stroke-linecap: round; }
+#topo .tun.up { stroke: #525e6c; } #topo .tun.pqc { stroke: #0a60ff; stroke-width: 5; }
+#topo .tun.ready { stroke: var(--ok); stroke-dasharray: 9 6; }
+#topo .tun.fail { stroke: var(--fail); stroke-dasharray: 7 6; }
+#topo .tun.warn { stroke: var(--warn); stroke-dasharray: 7 6; }
+#topo .badge rect { fill: var(--panel); stroke-width: 1.5; }
+#topo .badge text { font-size: 15px; font-weight: 600; }
+#topo .badge .st { font-weight: 800; }
+#topo .t-tun { font-family: var(--mono); font-size: 15px; font-weight: 700; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
+
 /* layout */
 .app { display: grid; grid-template-columns: 1fr; gap: 12px; padding: 12px 16px 24px; }
 
@@ -219,6 +255,12 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
 
   <main class="main">
     <div class="goal-banner" id="goal" hidden></div>
+    <section class="topo-card" aria-label="Topology">
+      <div class="topo-head"><b>Topology</b><span class="topo-sub" id="topo-sub">The tunnel follows your blocks; ▶ Apply shows the simulator's result.</span>
+        <span class="zoom-ctl" role="group" aria-label="Topology zoom"><button type="button" id="z-out" aria-label="Zoom out" title="Zoom out">−</button><button type="button" id="z-pct" aria-label="Reset zoom to 100%" title="Back to 100%">100%</button><button type="button" id="z-in" aria-label="Zoom in" title="Zoom in">+</button></span></div>
+      <svg id="topo" viewBox="60 -4 840 298" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Topology: hub R2 on top inside a WAN cloud, spokes R1 and R3 below"></svg>
+      <div class="topo-resize" id="topo-resize" role="separator" aria-orientation="horizontal" title="Drag to resize"></div>
+    </section>
     <nav class="chunks" id="chunks" aria-label="The four steps of an IPsec VPN"></nav>
     <div class="stage" id="stage">
       <section class="ws" id="ws-r1" aria-label="R1 workspace"></section>
@@ -254,16 +296,16 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
   </main>
 </div>
 
-<script src="../v3-three-router/js/ios-pqc-engine.js?v=20261008b"></script>
-<script src="../v3-three-router/js/lab-topology.js?v=20261003b"></script>
+<script src="../v3-three-router/js/ios-pqc-engine.js?v=20261020a"></script>
+<script src="../v5-quickstart/js/quick-topology.js?v=20261020a"></script>
 <script>
 (function () {
   'use strict';
   const $ = s => document.querySelector(s);
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const ROUTERS = {
-    r1: { host: 'R1', role: 'Spoke-1', wan: 'TwoGigabitEthernet0/0/0', ip: '10.0.12.1', peerNet: '10.0.23.0', nh: '10.0.12.2' },
-    r3: { host: 'R3', role: 'Spoke-2', wan: 'TwoGigabitEthernet0/0/0', ip: '10.0.23.2', peerNet: '10.0.12.0', nh: '10.0.23.1' },
+    r1: { host: 'R1', role: 'Spoke-1', wan: 'TwoGigabitEthernet0/0/0', ip: '192.0.12.1', peerNet: '192.0.23.0', nh: '192.0.12.2' },
+    r3: { host: 'R3', role: 'Spoke-2', wan: 'TwoGigabitEthernet0/0/0', ip: '192.0.23.2', peerNet: '192.0.12.0', nh: '192.0.23.1' },
   };
   const BASE = { dst: '', tunIp: '', route: true, peer: '', pskL: 'C1sco12345psk', pskR: 'C1sco12345psk', ts: ['esp-gcm 256'], enc: ['aes-cbc-256'], integ: ['sha512'], group: ['20'], pqc: [], opt: true, frag: true, pfs: false };
   const PRESETS = {
@@ -295,11 +337,11 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
     // JSON round-trip, not structuredClone: structuredClone keeps BASE's arrays shared between R1 and R3
     const own = o => JSON.parse(JSON.stringify(o));
     cfg = {
-      r1: own({ ...BASE, dst: '10.0.23.2', tunIp: '192.168.100.1', peer: '10.0.23.2', ...PRESETS[name].r1 }),
-      r3: own({ ...BASE, dst: '10.0.12.1', tunIp: '192.168.100.2', peer: '10.0.12.1', ...PRESETS[name].r3 }),
+      r1: own({ ...BASE, dst: '192.0.23.2', tunIp: '192.168.100.1', peer: '192.0.23.2', ...PRESETS[name].r1 }),
+      r3: own({ ...BASE, dst: '192.0.12.1', tunIp: '192.168.100.2', peer: '192.0.12.1', ...PRESETS[name].r3 }),
     };
     if (mode === 'complete') {
-      cfg.r1 = own({ ...BASE, dst: '10.0.23.2', tunIp: '192.168.100.1', peer: '10.0.23.2', pqc: ['mlkem768'], opt: true, pfs: true });
+      cfg.r1 = own({ ...BASE, dst: '192.0.23.2', tunIp: '192.168.100.1', peer: '192.0.23.2', pqc: ['mlkem768'], opt: true, pfs: true });
       cfg.r3 = { dst: '', tunIp: '', route: false, peer: '', pskL: '', pskR: '', ts: [], enc: [], integ: [], group: [], pqc: [], opt: false, frag: false, pfs: false };
     }
     revealed = false; renderBlocks(); update(); $('#result').className = 'result';
@@ -390,7 +432,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
     // 2 endpoints mirror
     const m1 = a.dst === ROUTERS.r3.ip, m3 = b.dst === ROUTERS.r1.ip;
     add('ends', 'underlay', 'Tunnel endpoints mirror', m1 && m3 ? 'ok' : 'fail',
-      m1 && m3 ? 'R1 → 10.0.23.2 and R3 → 10.0.12.1: each destination is the other\'s source.' : `Destination must be the peer's WAN address (${!m1 ? 'R1 should point to 10.0.23.2' : 'R3 should point to 10.0.12.1'}).`,
+      m1 && m3 ? 'R1 → 192.0.23.2 and R3 → 192.0.12.1: each destination is the other\'s source.' : `Destination must be the peer's WAN address (${!m1 ? 'R1 should point to 192.0.23.2' : 'R3 should point to 192.0.12.1'}).`,
       [['r1-dst', 'r3-src', m1 ? 'ok' : 'fail'], ['r1-src', 'r3-dst', m3 ? 'ok' : 'fail']], [!m1 && 'r1-dst', !m3 && 'r3-dst'].filter(Boolean));
     // 3 proposal overlap — lists: the first entry in the initiator's (R1) order that R3 also accepts wins
     const pick = (x, y) => ({ common: x.filter(v => y.includes(v)), chosen: x.find(v => y.includes(v)) });
@@ -470,7 +512,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
     if (c.pfs) push(' set pfs', 'ipsec');
     push('interface Tunnel0', 'tunnel'); push(` ip address ${c.tunIp} 255.255.255.0`, 'tunnel'); push(` tunnel source ${R.wan}`, 'tunnel');
     push(` tunnel destination ${c.dst}`, 'tunnel'); push(' tunnel mode ipsec ipv4', 'tunnel'); push(' tunnel protection ipsec profile IPSEC-1', 'tunnel');
-    if (c.route) push(`ip route ${R.peerNet} 255.255.255.0 ${R.nh}`, 'route');
+    if (c.route) push(`ip route ${R.peerNet} 255.255.255.252 ${R.nh}`, 'route');
     return L;
   }
   let iosDev = 'r1';
@@ -525,7 +567,7 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
     });
     document.querySelectorAll('.f').forEach(f => f.classList.remove('bad', 'wrn', 'agree'));
     if (showFb()) for (const r of current) for (const f of r.fields) { const el = document.querySelector(`[data-f="${f}"]`); if (el && !el.classList.contains('multi')) el.classList.add(r.status === 'fail' ? 'bad' : 'wrn'); }
-    renderChunks(); paintChips(); renderIos(); drawLines(null); renderGoal();
+    renderChunks(); paintChips(); renderIos(); drawLines(null); renderGoal(); renderTopo();
   }
   function renderGoal() {
     const g = $('#goal');
@@ -589,6 +631,11 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
     t += 2000; lab.tick();
     const sa = lab.saBetween('r1', 'r3'), st = lab.pairBetween('r1', 'r3');
     const outcome = sa ? (sa.child.down ? 'ike-only' : sa.params.pqc ? 'up-pqc' : 'up-classic') : 'down';
+    // the topology shows this verdict until a block changes
+    lastApply = Object.assign({ sig: JSON.stringify(cfg) }, sa && !sa.child.down
+      ? { cls: sa.params.pqc ? 'pqc' : 'up', st: 'UP', text: `Tu0 · ${sa.params.pqc ? PqcLab.PQC_LABEL[sa.params.pqc] + ' + ' : ''}DH ${sa.params.group}`, sub: 'overlay 192.168.100.0/24 · simulator result' }
+      : sa ? { cls: 'warn', st: 'IKE ONLY', text: 'no IPsec SA: traffic is not protected', sub: 'simulator result' }
+      : { cls: 'fail', st: 'DOWN', text: st ? st.code : 'the tunnels do not point at each other', sub: 'simulator result' });
     let verdict = '';
     if (prediction) {
       pstats.n++; if (prediction === outcome) pstats.ok++;
@@ -611,6 +658,108 @@ pre.ios .kw { color: #82aaff; } pre.ios .cm { color: #8b98a5; } pre.ios .nm { co
       res.innerHTML = verdict + `<b>✕ Tunnel DOWN</b>: ${esc(st ? `${st.code}: ${st.err}` : 'the two tunnels do not point at each other (check destination / source).')}`;
     }
   }
+
+  /* ───────── topology: the lab drawn like the GRE and quick labs, driven by the blocks ───────── */
+  const NS = 'http://www.w3.org/2000/svg', svg = $('#topo');
+  const mk = (tag, a = {}, p) => { const n = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(a)) n.setAttribute(k, v); if (p) p.appendChild(n); return n; };
+  const tx = (p, x, y, cls, s, an = 'middle') => { const n = mk('text', { x, y, class: cls, 'text-anchor': an }, p); n.textContent = s; return n; };
+  const PT = { r1: [150, 214], r2: [480, 80], r3: [810, 214] };
+  const R2 = { host: 'R2', role: 'Hub/Transit', a: { port: 'Tw0/0/0', ip: '192.0.12.2' }, b: { port: 'Tw0/0/1', ip: '192.0.23.1' } };
+  let lastApply = null;   // { sig, outcome, text }
+  function routerIcon(p, x, y) {
+    const RX = 42, RY = 15, cy = y - 9, H = 24;
+    mk('path', { class: 'r-body', d: `M${x - RX},${cy} v${H} a${RX},${RY} 0 0 0 ${2 * RX},0 v${-H}` }, p);
+    mk('ellipse', { class: 'r-top', cx: x, cy, rx: RX, ry: RY }, p);
+    for (const d of [`M${x - RX + 8},${cy + 1} H${x - 13} m-5,-4.5 l5,4.5 l-5,4.5`, `M${x + RX - 8},${cy - 1} H${x + 13} m5,-4.5 l-5,4.5 l5,4.5`,
+      `M${x - 4},${cy - 1} V${cy - 12} m-4.5,4.5 l4.5,-4.5 l4.5,4.5`, `M${x + 4},${cy + 1} V${cy + 12} m-4.5,-4.5 l4.5,4.5 l4.5,-4.5`]) mk('path', { class: 'r-arrow', d }, p);
+  }
+  function badge(p, cx, cy, st, label, col, sub) {
+    const g = mk('g', { class: 'badge' }, p), h2 = sub ? 17 : 0;
+    const rect = mk('rect', { y: cy - 14 - h2 / 2, height: 28 + h2, rx: 8, stroke: col }, g);
+    const ty = cy + 5 - h2 / 2, t = mk('text', { x: cx + 7, y: ty, 'text-anchor': 'middle' }, g);
+    const a = mk('tspan', { class: 'st' }, t); a.textContent = st; const b = mk('tspan', {}, t); b.textContent = ` · ${label}`;
+    if (sub) tx(g, cx, cy + 5 + h2 / 2 + 2, 't-port', sub);
+    const dot = mk('circle', { cy: ty - 5, r: 5, fill: col }, g);
+    let w = 0; try { w = t.getComputedTextLength(); } catch (e) { } if (!w) w = (st.length + label.length + 3) * 8.6;
+    const bw = Math.max(w + 40, sub ? sub.length * 7.4 + 22 : 0);
+    rect.setAttribute('x', cx - bw / 2); rect.setAttribute('width', bw); dot.setAttribute('cx', cx + 7 - w / 2 - 11);
+  }
+  // what the tunnel looks like now: the simulator's verdict if the blocks have not changed since Apply, else the checklist's
+  function tunnelState() {
+    const a = cfg.r1, b = cfg.r3;
+    if (!a.dst && !b.dst) return null;
+    if (lastApply && lastApply.sig === JSON.stringify(cfg)) return lastApply;
+    const fail = current.find(r => r.status === 'fail'), warn = current.find(r => r.status === 'warn');
+    if (fail) return { cls: 'fail', st: 'WILL FAIL', text: fail.title, sub: 'Step ' + chunkOf(RULE_CHUNK[fail.id]).n + ' · ' + chunkOf(RULE_CHUNK[fail.id]).label };
+    if (warn) return { cls: 'warn', st: 'READY', text: warn.title, sub: 'works, but check the checklist · ▶ Apply to test' };
+    return { cls: 'ready', st: 'READY', text: 'all checks agree', sub: '▶ Apply to bring it up' };
+  }
+  function renderTopo() {
+    svg.innerHTML = '';
+    const defs = mk('defs', {}, svg), gr = mk('linearGradient', { id: 'g-router', x1: 0, y1: 0, x2: 1, y2: 1 }, defs);
+    mk('stop', { offset: '0%', 'stop-color': '#009de2' }, gr); mk('stop', { offset: '100%', 'stop-color': '#0a60ff' }, gr);
+    const cx = PT.r2[0], cy = PT.r2[1];
+    mk('path', { class: 'cloud', d: `M${cx - 150},${cy + 58} C${cx - 200},${cy + 58} ${cx - 205},${cy + 4} ${cx - 160},${cy - 6} C${cx - 168},${cy - 52} ${cx - 100},${cy - 74} ${cx - 64},${cy - 46} C${cx - 44},${cy - 82} ${cx + 44},${cy - 82} ${cx + 64},${cy - 46} C${cx + 100},${cy - 74} ${cx + 168},${cy - 52} ${cx + 160},${cy - 6} C${cx + 205},${cy + 4} ${cx + 200},${cy + 58} ${cx + 150},${cy + 58} C${cx + 120},${cy + 86} ${cx + 52},${cy + 84} ${cx + 32},${cy + 66} C${cx + 12},${cy + 84} ${cx - 12},${cy + 84} ${cx - 32},${cy + 66} C${cx - 52},${cy + 84} ${cx - 120},${cy + 86} ${cx - 150},${cy + 58} Z` }, svg);
+    tx(svg, cx - 184, 26, 'cloud-lbl', 'WAN', 'end'); tx(svg, cx - 184, 44, 'cloud-note', 'R2 can stand for', 'end'); tx(svg, cx - 184, 60, 'cloud-note', 'a whole provider network', 'end');
+    // underlay: each spoke into R2; a spoke without its route to the far WAN is drawn dashed red
+    for (const [k, hub, net] of [['r1', R2.a, '192.0.12.0/30'], ['r3', R2.b, '192.0.23.0/30']]) {
+      const [sx, sy] = PT[k], [hx, hy] = PT.r2, o = sx < hx ? -1 : 1, an = o < 0 ? 'end' : 'start';
+      const S = [sx - o * 30, sy - 25], H = [hx + o * 44, hy - 2];
+      mk('line', { class: 'link' + (cfg[k].route ? '' : ' miss'), x1: S[0], y1: S[1], x2: H[0], y2: H[1] }, svg);
+      for (const P of [S, H]) mk('circle', { cx: P[0], cy: P[1], r: 4.5, fill: 'var(--ok)' }, svg);
+      tx(svg, S[0] + o * 2, S[1] - 12, 't-ip', ROUTERS[k].ip, an); tx(svg, S[0] + o * 2, S[1] - 31, 't-port', ROUTERS[k].wan.replace('TwoGigabitEthernet', 'Tw'), an);
+      tx(svg, H[0] + o * 8, H[1] - 10, 't-ip', hub.ip, an); tx(svg, H[0] + o * 8, H[1] - 29, 't-port', hub.port, an);
+      tx(svg, (S[0] + H[0]) / 2 + o * 12, (S[1] + H[1]) / 2 - 14, 't-link', cfg[k].route ? `${net} · 2.5 Gb` : `${net} · ${ROUTERS[k].host}: no route to the far WAN`, an);
+    }
+    for (const k of ['r1', 'r2', 'r3']) {
+      const [x, y] = PT[k], hub = k === 'r2', R = hub ? R2 : ROUTERS[k]; routerIcon(svg, x, y);
+      tx(svg, x, y + (hub ? 44 : 52), 't-host', R.host); tx(svg, x, y + (hub ? 62 : 71), 't-role', R.role);
+    }
+    // the tunnel along the base, from each router's own Tunnel0 block
+    const st = tunnelState();
+    if (st) {
+      const y0 = PT.r1[1] - 4, x1 = PT.r1[0] + 48, x2 = PT.r3[0] - 48;
+      mk('path', { class: 'tun ' + st.cls, d: `M${x1},${y0} L${x2},${y0}` }, svg);
+      if (cfg.r1.tunIp) tx(svg, x1 + 4, y0 + 24, 't-tun', cfg.r1.tunIp, 'start');
+      if (cfg.r3.tunIp) tx(svg, x2 - 4, y0 + 24, 't-tun', cfg.r3.tunIp, 'end');
+      const col = { up: '#525e6c', pqc: '#0a60ff', ready: 'var(--ok)', warn: 'var(--warn)', fail: 'var(--fail)' }[st.cls];
+      badge(svg, 480, y0, st.st, st.text, col, st.sub);
+    }
+    applyZoom();
+  }
+  /* zoom 25%–400% (pinch, ctrl+scroll, − / +), pan with scroll or two fingers; drag the bottom edge to resize */
+  const ZB = { x: 60, y: -4, w: 840, h: 298 }, zv = { ...ZB }, touches = new Map(); let pinch = null;
+  function applyZoom() {
+    zv.w = Math.min(ZB.w * 4, Math.max(ZB.w / 4, zv.w)); zv.h = zv.w * ZB.h / ZB.w;
+    zv.x = Math.min(ZB.x + 3 * ZB.w - zv.w, Math.max(ZB.x - 2 * ZB.w, zv.x)); zv.y = Math.min(ZB.y + 3 * ZB.h - zv.h, Math.max(ZB.y - 2 * ZB.h, zv.y));
+    svg.setAttribute('viewBox', `${zv.x} ${zv.y} ${zv.w} ${zv.h}`);
+    const z = ZB.w / zv.w; $('#z-pct').textContent = Math.round(z * 100) + '%'; $('#z-in').disabled = z >= 3.999; $('#z-out').disabled = z <= 0.251;
+  }
+  const svgPt = (x, y) => { const p = svg.createSVGPoint(); p.x = x; p.y = y; const m = svg.getScreenCTM(); return m ? p.matrixTransform(m.inverse()) : p; };
+  function zoomAt(x, y, f) { const p = svgPt(x, y), w = Math.min(ZB.w * 4, Math.max(ZB.w / 4, zv.w / f)), k = w / zv.w; zv.x = p.x - (p.x - zv.x) * k; zv.y = p.y - (p.y - zv.y) * k; zv.w = w; applyZoom(); }
+  function panBy(dx, dy) { const m = svg.getScreenCTM(); if (!m) return; zv.x -= dx / m.a; zv.y -= dy / m.d; applyZoom(); }
+  const mid = f => { const r = svg.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, f); };
+  $('#z-in').addEventListener('click', () => mid(1.25)); $('#z-out').addEventListener('click', () => mid(0.8));
+  $('#z-pct').addEventListener('click', () => { Object.assign(zv, ZB); applyZoom(); });
+  svg.addEventListener('wheel', e => { if (e.ctrlKey) { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.01)); } else if (Math.abs(zv.w - ZB.w) > 0.5) { e.preventDefault(); panBy(-e.deltaX, -e.deltaY); } }, { passive: false });
+  let gs = 1;
+  svg.addEventListener('gesturestart', e => { e.preventDefault(); gs = 1; });
+  svg.addEventListener('gesturechange', e => { e.preventDefault(); zoomAt(e.clientX, e.clientY, e.scale / gs); gs = e.scale; });
+  const pinchSt = () => { const [a, b] = [...touches.values()]; return { d: Math.hypot(a[0] - b[0], a[1] - b[1]) || 1, x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 }; };
+  svg.addEventListener('pointerdown', e => { if (e.pointerType !== 'touch') return; touches.set(e.pointerId, [e.clientX, e.clientY]); if (touches.size === 2) pinch = pinchSt(); });
+  svg.addEventListener('pointermove', e => { if (!touches.has(e.pointerId)) return; touches.set(e.pointerId, [e.clientX, e.clientY]); if (pinch && touches.size === 2) { const n = pinchSt(); zoomAt(n.x, n.y, n.d / pinch.d); panBy(n.x - pinch.x, n.y - pinch.y); pinch = n; } });
+  const tEnd = e => { touches.delete(e.pointerId); if (touches.size < 2) pinch = null; };
+  svg.addEventListener('pointerup', tEnd); svg.addEventListener('pointercancel', tEnd);
+  (() => {   // resize the topology by dragging its bottom edge
+    const h = $('#topo-resize');
+    h.addEventListener('pointerdown', e => {
+      e.preventDefault(); h.classList.add('drag'); h.setPointerCapture(e.pointerId);
+      const top = svg.getBoundingClientRect().top;
+      const mv = ev => { svg.style.height = Math.max(140, Math.min(window.innerHeight * 0.8, ev.clientY - top)) + 'px'; };
+      const up = () => { h.classList.remove('drag'); h.removeEventListener('pointermove', mv); h.removeEventListener('pointerup', up); };
+      h.addEventListener('pointermove', mv); h.addEventListener('pointerup', up);
+    });
+  })();
 
   /* ───────── toggles ───────── */
   $('#preset').addEventListener('change', e => load(e.target.value));
