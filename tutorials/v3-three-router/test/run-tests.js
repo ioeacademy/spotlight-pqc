@@ -148,5 +148,32 @@ console.log('\n--- GRE tunnel ---');
   adv(45);
   check(/line protocol is up/.test(lp('r1')), 'GRE: back up when the hold-down expires');
 }
+// ── platform without PQC (CML C8000V, IOS XE 26.02.1, router_bridge/packages/pqc-ikev2-ppk-c8000v): `pqc …` warns, is kept, and offers no ML-KEM
+console.log('\n--- C8000V without PQC support ---');
+{
+  const WARN = ' Warning!! IKEv2 PQC is not supported on this platform.';
+  const topo = JSON.parse(JSON.stringify(TOPO)); Object.assign(topo.devices.r3, { model: 'C8000V', pqcSupport: false });
+  let tv = Date.UTC(2026, 9, 8, 10, 0, 0); const v = new Lab(topo, { now: () => tv });
+  const vx = (dev, cmd) => { const d = v.dev(dev); if (d.mode === 'exec' && cmd !== 'enable') v.exec(dev, 'enable'); if (cmd === 'configure terminal' && d.mode !== 'priv' && d.mode !== 'exec') v.exec(dev, 'end'); const r = v.exec(dev, cmd); tv += 150; v.tick(); return r.lines; };
+  const pq = (dev, line) => { vx(dev, 'configure terminal'); vx(dev, 'crypto ikev2 proposal CLASSICAL-PROPOSAL'); const l = vx(dev, line); vx(dev, 'end'); return l; };
+  const reneg = () => { vx('r1', 'clear crypto ikev2 sa'); tv += 2000; v.tick(); };
+  for (const s of STEPS) { for (const [dev, cmd] of s.run) vx(dev, cmd); tv += 2000; v.tick(); if (s.id === 'mlkem') break; }
+  check(/Supports PQC: No/.test(vx('r3', 'show crypto pqc-support').map(l => l.text).join('\n')), 'C8000V: show crypto pqc-support → No');
+  const w = pq('r3', 'pqc mlkem768 optional');
+  check(w.length === 1 && w[0].text === WARN && w[0].cls === 'warn', 'C8000V: `pqc mlkem768 optional` prints the platform warning, no error');
+  check(pq('r1', 'pqc mlkem768 optional').length === 0, 'C8235-G2: `pqc mlkem768 optional` prints nothing');
+  reneg();
+  const sv = v.saBetween('r1', 'r3');
+  check(sv && !sv.params.pqc && !/ML-KEM/.test(vx('r1', 'show crypto ikev2 sa detailed').map(l => l.text).join('\n')), 'C8000V + optional peer → tunnel up, classical only');
+  check(/^ pqc mlkem768 optional$/m.test(vx('r3', 'show running-config').map(l => l.text).join('\n')), 'C8000V: the pqc line stays in the running-config');
+  check(/PQC Key Exchange: none/.test(vx('r3', 'show crypto ikev2 proposal CLASSICAL-PROPOSAL').map(l => l.text).join('\n')), 'C8000V: show crypto ikev2 proposal → PQC Key Exchange: none');
+  check(pq('r3', 'pqc mlkem768').some(l => l.text === WARN), 'C8000V: mandatory `pqc mlkem768` also warns');
+  reneg();
+  check(v.saBetween('r1', 'r3') && !v.saBetween('r1', 'r3').params.pqc, 'C8000V mandatory `pqc` is not enforced → still classical');
+  pq('r1', 'pqc mlkem768'); reneg();
+  const pv = v.pairBetween('r1', 'r3');
+  check(!v.saBetween('r1', 'r3') && /requires ML-KEM but R3 does not offer it/.test(pv.err) && /Supports PQC: No/.test(pv.err), 'mandatory peer vs C8000V → NO_PROPOSAL_CHOSEN');
+  check(pq('r3', 'no pqc mlkem768').some(l => l.text === WARN), 'C8000V: `no pqc mlkem768` warns too');
+}
 console.log(`\n${fails ? fails + ' FAILURE(S)' : 'ALL PASSED'}`);
 process.exit(fails ? 1 : 0);
