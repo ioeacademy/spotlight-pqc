@@ -35,10 +35,9 @@ work for or are affiliated with **are not liable** for any claim, damage, loss o
 or inability to use, this simulator or its tutorials, or from any configuration derived from them.
 You use it at your own risk and are responsible for your own decisions and configurations.
 
-## Trademarks and affiliation
+## Trademarks
 
-Spotlight PQC is an independent project. It is **not affiliated with, sponsored by or endorsed
-by Cisco Systems, Inc.** Cisco, IOS, IOS XE and Catalyst are trademarks or registered trademarks
+Cisco, IOS, IOS XE and Catalyst are trademarks or registered trademarks
 of Cisco Systems, Inc. and/or its affiliates; other names may be trademarks of their respective
 owners and are used only to describe compatibility and for teaching purposes.
 
