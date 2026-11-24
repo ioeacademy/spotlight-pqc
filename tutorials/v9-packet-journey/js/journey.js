@@ -474,6 +474,10 @@
     renderDetails(fi);
     renderStepNotes(fi);
     $('#wsTitle').textContent = nextVisible(S.e) < 0 && S.e >= 0 ? FILE[S.sc] : 'Capturing from r2-g1';
+    // Guide: a pulsing dot on "Decryption keys" when the keys would reveal more of this frame
+    const more = G.on && !S.keys && fi !== null && guideHitsFor(fi, true).length > guideHitsFor(fi, false).length;
+    $('#keys').classList.toggle('g-attn', more);
+    $('#keys').title = more ? 'Guide: load the lab keys to see what is encrypted in this frame' : 'Decrypt with the published lab keys';
   }
   function setFollow(on) {
     S.follow = on; $('#follow').setAttribute('aria-pressed', String(on));
@@ -545,6 +549,7 @@
       if (kids && openMap.get(p)) walk(kids, depth + 1, p);
     });
     walk(fd.tree, 0, '');
+    const hits = guideHits(fi), hitAt = new Map(hits.map((h) => [h.p, h]));
     const frag = document.createDocumentFragment();
     let selRow = null;
     rows.forEach(({ n, depth, p }) => {
@@ -557,8 +562,17 @@
       if (n[5]) ar.innerHTML = '<i></i>';
       d.append(ar);
       const t = document.createElement('span'); t.textContent = n[0]; d.append(t);
+      // Guide: important fields get the guide colour and a "?"; a closed branch hiding one gets a pulsing dot
+      if (hitAt.has(p)) {
+        d.classList.add('g-hit');
+        const c = document.createElement('span'); c.className = 'g-chip'; c.textContent = '?'; c.title = 'Guide: what is this, and why does it matter?'; d.append(c);
+      }
+      let dot = null;
+      if (n[5] && !openMap.get(p) && hits.some((h) => h.p.startsWith(p + '/'))) {
+        dot = document.createElement('span'); dot.className = 'gdot'; dot.title = 'Guide: open this to explore what is inside'; d.append(dot);
+      }
       d.onclick = (ev) => {
-        if (n[5] && (ev.target === ar || ev.target.parentNode === ar)) toggle(p, n);
+        if (n[5] && (ev.target === ar || ev.target.parentNode === ar || ev.target === dot)) toggle(p, n);
         else selectNode(p, n);
       };
       d.ondblclick = () => { if (n[5]) toggle(p, n); };
@@ -573,6 +587,7 @@
     if (selRow && selRow.n[2] > 0 && selRow.n[3] !== S.src && openFrameKey === fkey && S.srcFor !== fkey + S.node) { S.src = selRow.n[3]; S.srcFor = fkey + S.node; }
     renderBytes(fd, selRow ? selRow.n : null);
     if (!S.filterErr) $('#wsField').textContent = selRow ? fieldStatus(selRow.n) : '';
+    renderGuidePanel();
   }
   function toggle(p, n) {
     const open = !openMap.get(p);
@@ -590,6 +605,7 @@
     if (row) row.classList.add('sel');
     renderBytes(fdata(selectedFrame()), n);
     if (!S.filterErr) $('#wsField').textContent = fieldStatus(n);
+    G.closed = null; renderGuidePanel();
   }
   function fieldStatus(n) {
     const name = DATA.fieldNames[n[4]];
@@ -612,6 +628,9 @@
     if (S.src >= srcs.length) S.src = 0;
     const hex = srcs[S.src][1];
     const lo = node && node[3] === S.src && node[2] > 0 ? node[1] : -1, hi = lo >= 0 ? node[1] + node[2] : -1;
+    // Guide: the bytes of the highlighted fields (short fields only, so whole payloads do not flood the view)
+    const gr = guideHits(selectedFrame()).filter((h) => h.n[3] === S.src && h.n[2] > 0 && h.n[2] <= 64).map((h) => [h.n[1], h.n[1] + h.n[2]]);
+    const inG = (o) => gr.some(([a, b]) => o >= a && o < b);
     const out = [];
     const nb = hex.length / 2;
     for (let off = 0; off < nb; off += 16) {
@@ -620,7 +639,7 @@
         const o = off + i;
         if (o >= nb) { h += '   ' + (i === 7 ? ' ' : ''); continue; }
         const byte = parseInt(hex.substr(o * 2, 2), 16);
-        const cls = o >= lo && o < hi ? 'b h' : 'b';
+        const cls = o >= lo && o < hi ? 'b h' : inG(o) ? 'b g' : 'b';
         const ch = byte >= 32 && byte < 127 ? String.fromCharCode(byte).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]) : '.';
         h += `<span class="${cls}" data-o="${o}">${hex.substr(o * 2, 2)}</span>` + (i === 7 ? '  ' : ' ');
         a += `<span class="${cls}" data-o="${o}">${ch}</span>`;
@@ -653,6 +672,93 @@
       tabs.append(b);
     });
   }
+
+  /* ═══════════════════════ Guide: highlighted fields, floating explanations, pulsing dots ═══════════════════════ */
+  const G = { on: true, closed: null, cache: new Map() };
+  try { G.on = localStorage.getItem('spq-pj-guide') !== 'off'; } catch (e) { }
+  // every guided field of a frame, in tree order, with its path (the same "/i/j" paths renderDetails uses)
+  function guideHitsFor(fi, keys) {
+    const k = `${S.sc}/${keys}/${fi}`;
+    if (G.cache.has(k)) return G.cache.get(k);
+    const d = DATA[S.sc], fd = (keys && d.keys[fi]) || d.nokeys[fi], m = frames()[fi], out = [];
+    const walk = (nodes, path, anc) => nodes.forEach((n, idx) => {
+      const p = path + '/' + idx, ctx = { m, sc: S.sc, keys, anc };
+      const r = window.JOURNEY_GUIDE.match(n, ctx);
+      if (r) out.push({ p, n, r, ctx });
+      if (n[5]) walk(n[5], p, anc.concat(n[0]));
+    });
+    walk(fd.tree, '', []);
+    G.cache.set(k, out);
+    return out;
+  }
+  const guideHits = (fi) => (G.on && fi !== null && fi !== undefined ? guideHitsFor(fi, S.keys) : []);
+  const gp = document.createElement('div');
+  gp.className = 'g-panel'; gp.hidden = true; gp.setAttribute('role', 'dialog'); gp.setAttribute('aria-label', 'Guide');
+  document.body.appendChild(gp);
+  function currentHit() {
+    const fi = selectedFrame();
+    if (!G.on || fi === null || !S.node) return null;
+    const hits = guideHits(fi), i = hits.findIndex((h) => h.p === S.node);
+    return i < 0 ? null : { hits, i, fi, key: `${S.sc}/${S.keys}/${fi}${S.node}` };
+  }
+  function renderGuidePanel() {
+    const c = currentHit();
+    if (!c || G.closed === c.key || S.tab !== 'cap') { gp.hidden = true; return; }
+    const h = c.hits[c.i], t = window.JOURNEY_GUIDE.text(h.r, h.n, h.ctx);
+    gp.innerHTML = `<div class="g-head"><span class="g-badge">Guide</span><b>${t.title}</b><button type="button" class="g-x" aria-label="Close the guide note" title="Close (Esc)">✕</button></div>
+      <div class="g-sec"><span>What it is</span>${t.what}</div>
+      <div class="g-sec"><span>Why it matters</span>${t.why}</div>
+      <div class="g-nav"><button type="button" data-gstep="-1" ${c.i ? '' : 'disabled'}>‹ Previous</button><span>${c.i + 1} of ${c.hits.length} in this frame</span><button type="button" data-gstep="1" ${c.i < c.hits.length - 1 ? '' : 'disabled'}>Next ›</button></div>`;
+    gp.dataset.key = c.key;
+    gp.hidden = false;
+    placeGuide();
+  }
+  // floats over the packet details, under the selected field (above it near the bottom of the window)
+  function placeGuide() {
+    if (gp.hidden) return;
+    const row = document.querySelector(`#tree .n[data-p="${S.node}"]`), pane = $('#wsTree');
+    if (!row || !pane.offsetParent) { gp.hidden = true; return; }
+    const r = row.getBoundingClientRect(), P = pane.getBoundingClientRect();
+    gp.style.visibility = r.bottom < P.top || r.top > P.bottom ? 'hidden' : '';
+    const w = gp.offsetWidth, h = gp.offsetHeight;
+    const left = Math.max(8, Math.max(P.left + 8, Math.min(P.right - w - 12, innerWidth - w - 8)));
+    // below the field, else above it; always inside the Wireshark window (it sits on the right, clear of the field names)
+    const W = $('#ws').getBoundingClientRect(), lo = Math.max(8, W.top + 4), hi = Math.min(innerHeight, W.bottom) - h - 4;
+    let top = r.bottom + 6;
+    if (top > hi) top = r.top - h - 6;
+    gp.style.left = left + 'px'; gp.style.top = Math.max(lo, Math.min(top, Math.max(lo, hi))) + 'px';
+  }
+  function closeGuide() { G.closed = gp.dataset.key; gp.hidden = true; }
+  function goToHit(i) {
+    const fi = selectedFrame(), hits = guideHits(fi), h = hits[i];
+    if (!h) return;
+    const parts = h.p.split('/').slice(1);
+    for (let k = 1; k < parts.length; k++) openMap.set('/' + parts.slice(0, k).join('/'), true);
+    S.node = h.p; S.nodeKey = nodeKey(h.n); if (h.n[2] > 0) S.src = h.n[3];
+    G.closed = null;
+    renderDetails(fi);
+    const row = document.querySelector(`#tree .n[data-p="${h.p}"]`), pane = $('#wsTree');
+    if (row) { const rt = row.offsetTop - pane.offsetTop; if (rt < pane.scrollTop || rt > pane.scrollTop + pane.clientHeight - 20) pane.scrollTop = rt - 30; }
+    placeGuide();
+  }
+  gp.addEventListener('click', (e) => {
+    if (e.target.closest('.g-x')) return closeGuide();
+    const s = e.target.closest('[data-gstep]'); if (s) { const c = currentHit(); if (c) goToHit(c.i + Number(s.dataset.gstep)); }
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !gp.hidden && !e.target.closest('.ink-editor')) closeGuide(); });
+  $('#wsTree').addEventListener('scroll', placeGuide);
+  $('#t-cap').addEventListener('scroll', placeGuide);
+  window.addEventListener('resize', placeGuide);
+  function setGuide(on) {
+    G.on = on; G.closed = null;
+    try { localStorage.setItem('spq-pj-guide', on ? 'on' : 'off'); } catch (e) { }
+    $('#guide').setAttribute('aria-pressed', String(on));
+    document.body.classList.toggle('guide-on', on);
+    renderInspector();
+  }
+  $('#guide').addEventListener('click', () => setGuide(!G.on));
+  $('#guide').setAttribute('aria-pressed', String(G.on));
+  document.body.classList.toggle('guide-on', G.on);
 
   /* ═══════════════════════ Packet notes (inside the phase's step) ═══════════════════════ */
   function anatomy(fi) {
@@ -689,7 +795,11 @@
     const refs = m.refs.map((r) => `<a href="${META.rfc[r].u}" target="_blank" rel="noopener">${META.rfc[r].t}</a>`).join('');
     return `<span class="nlabel">This packet</span>` +
       `<div class="kicker"><span class="kind" style="background:${cvar(m.kind)}">${m.kind}</span>Frame #${m.n} · ${d.row[1]} s · ${m.dir.replace('>', ' → ')}</div>` +
-      `<h5>${m.title}</h5><p>${m.text}</p>${anatomy(fi)}<dl class="facts">${facts}</dl><div class="refs">${refs}</div>`;
+      `<h5>${m.title}</h5><p>${m.text}</p>${anatomy(fi)}<dl class="facts">${facts}</dl><div class="refs">${refs}</div>` + guideInvite(fi);
+  }
+  function guideInvite(fi) {
+    const n = guideHits(fi).length;
+    return n ? `<button type="button" class="btn ghost g-explore" data-guide-explore><span class="gdot" aria-hidden="true"></span>Guide: explore ${n} highlighted field${n > 1 ? 's' : ''} in the capture</button>` : '';
   }
   const IDLE_NOTE = '<span class="nlabel">This packet</span>Step through this phase: each packet is explained here, with its size on the wire and the RFCs behind it.';
   function renderStepNotes(fi) {
@@ -697,7 +807,7 @@
     STEPS.forEach((s, i) => {
       if (s.pi === undefined) return;
       const box = $('#note-' + i); if (!box) return;
-      const key = s.pi === pi ? `${S.sc}/${fi}` : 'idle';
+      const key = s.pi === pi ? `${S.sc}/${fi}/${G.on}/${S.keys}` : 'idle';
       if (box.dataset.key === key) return;
       box.dataset.key = key;
       box.classList.toggle('idle', key === 'idle');
@@ -753,6 +863,7 @@
   }
   $('#steps').addEventListener('click', (e) => {
     const fc = e.target.closest('.fchip'); if (fc) return setFilter(fc.dataset.f);
+    if (e.target.closest('[data-guide-explore]')) { showTab('cap'); return goToHit(0); }
     const sc = e.target.closest('[data-sc]'); if (sc) return setScenario(sc.dataset.sc);
     const pl = e.target.closest('[data-play]'); if (pl) return playPhase(+pl.dataset.play);
     if (e.target.closest('[data-continue]')) { P().intro = true; syncSteps(); return; }
@@ -878,7 +989,7 @@
   }
 
   /* ═══════════════════════ Tunnel inspector (modal) ═══════════════════════ */
-  function openModal() { renderModal(); $('#modal-bg').hidden = false; $('#modal-close').focus(); }
+  function openModal() { $('#modal-bg').hidden = false; seqNow = null; $('#modal-body').scrollTop = 0; renderModal(); $('#modal-close').focus(); }
   function closeModal() { $('#modal-bg').hidden = true; }
   function renderModal() {
     const st = derive(S.e), v = tunnelView(st), hyb = S.sc === 'hybrid', m = meta();
@@ -893,28 +1004,87 @@
       <dt>Child SA (ESP)</dt><dd>${st.child ? `AES-GCM-256 · SPIs ${st.childSpis[0]} / ${st.childSpis[1]}` : 'not yet'}</dd>
       <dt>Setup so far</dt><dd>${fmt(st.setupB)} of ${fmt(m.setupBytes)} B · ${st.rtt} of ${m.setupRtt} round trips</dd>
       <dt>Rekeys</dt><dd>CHILD SA ${st.rekeyChild ? '✓' : '—'} · IKE SA ${st.rekeyIke ? '✓' : '—'}</dd></dl>`;
-    // the exchange so far, as the labs draw it: one arrow per message, ESP runs folded
-    const fr = frames(), rows = [];
-    fr.forEach((f, i) => {
-      if (LASTIDX[i] > S.e || f.kind === 'ARP') return;
-      const last = rows[rows.length - 1];
-      if (f.kind === 'ESP' && last && last.esp) { last.n++; last.i = i; return; }
-      rows.push({ f, i, esp: f.kind === 'ESP', n: 1 });
-    });
-    const curFi = S.e >= 0 ? EV[S.e].fi : -1;
-    const msg = (r) => {
-      const f = r.f, dir = f.dir === 'R1>R3' ? 'ltr' : 'rtl', pq = f.kind === 'IKE_INTERMEDIATE' || f.kind === 'IKE_FOLLOWUP_KE';
-      const name = r.esp ? `ESP · ${r.n} packet${r.n > 1 ? 's' : ''}, both directions` : esc(f.title.split(' · ')[0]);
-      const chips = r.esp ? ['162 B each'] : [`${fmt(f.len)} B`, f.label];
-      return `<div class="msg ${dir}${pq ? ' pq' : ''}${r.esp ? ' esp' : ''}${r.i === curFi ? ' now' : ''}"><span></span><div class="arrow"><div class="name">${name}</div><div class="line"></div><div class="chips">${chips.map((c) => `<span class="chip${pq ? ' pq' : ''}">${esc(c)}</span>`).join('')}</div></div><span></span></div>`;
-    };
-    h += '<h4>IKEv2 exchange so far</h4>';
-    h += rows.length ? `<div class="ladder"><div class="end">R1</div><div></div><div class="end">R3</div>${rows.map(msg).join('')}</div>` : '<p>Nothing exchanged yet. Press <b>Step</b> or <b>Play</b>.</p>';
+    h += '<h4>IKEv2 exchange</h4>' + sequenceDiagram();
     h += `<div class="verdict">
       <div><b>Key exchange</b><br>${hyb ? '<span class="ok">✓ Hybrid X25519 + ML-KEM-768</span>' : '<span class="no">✗ X25519 only: exposed to "record now, decrypt later"</span>'}</div>
       <div><b>Data plane</b><br><span class="ok">✓ AES-GCM-256: ample margin against Grover</span></div></div>`;
-    $('#modal-body').innerHTML = h;
+    const body = $('#modal-body'), keep = body.scrollTop;
+    body.innerHTML = h;
+    body.scrollTop = keep;
+    // keep the current message in view as the replay moves on
+    const now = body.querySelector('.seq-row.now');
+    if (now && seqNow !== now.dataset.fi) {
+      seqNow = now.dataset.fi;
+      const b = body.getBoundingClientRect(), r = now.getBoundingClientRect();
+      if (r.top < b.top + 20 || r.bottom > b.bottom - 20) body.scrollTop += r.top - b.top - b.height / 2;
+    }
   }
+  let seqNow = null;
+  /* the whole exchange as a sequence diagram: R1 (initiator) and R3 (responder) as two lifelines, one arrow per
+     message from sender to receiver, a brace per phase; ESP runs folded into one two-way arrow; the current
+     message marked "now", messages not sent yet faded */
+  function sequenceDiagram() {
+    const fr = frames(), ph = meta().phases, curFi = S.e >= 0 ? EV[S.e].fi : -1;
+    const PHN = { 'IKE_INTERMEDIATE · ML-KEM': 'ML-KEM round', 'ESP traffic': 'Traffic', 'ESP on new SAs': 'Traffic, new SAs' };
+    const rows = [];
+    fr.forEach((f, i) => {
+      if (f.kind === 'ARP') return;
+      const last = rows[rows.length - 1];
+      if (f.kind === 'ESP' && last && last.esp && last.phase === f.phase) { last.fis.push(i); return; }
+      rows.push({ f, fis: [i], esp: f.kind === 'ESP', phase: f.phase });
+    });
+    const sent = (i) => LASTIDX[i] <= S.e;
+    const W = 770, XL = 200, XR = 680, MID = (XL + XR) / 2, RH = 32, GAP = 12, TOP = 88;
+    let y = TOP, svg = '', braces = '';
+    const groups = [];
+    rows.forEach((r, k) => {
+      if (k && rows[k - 1].phase !== r.phase) y += GAP;
+      r.y = y; y += RH;
+      const g = groups[groups.length - 1];
+      if (g && g.phase === r.phase) g.rows.push(r); else groups.push({ phase: r.phase, rows: [r] });
+    });
+    const H = y + 34;
+    const arrowDefs = Object.keys(KCOL).map((k) => `<marker id="sq-${k}" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1L9 5L1 9z" style="fill:${cvar(k)}"/></marker>`).join('');
+    for (const r of rows) {
+      const f = r.f, nSent = r.fis.filter(sent).length, isNow = r.fis.includes(curFi);
+      const state = isNow ? 'now' : nSent === r.fis.length ? 'sent' : 'ahead';
+      const pq = f.kind === 'IKE_INTERMEDIATE' || f.kind === 'IKE_FOLLOWUP_KE';
+      const label = r.esp
+        ? `ESP · ${nSent && nSent < r.fis.length ? `${nSent} of ${r.fis.length}` : r.fis.length} packets, both directions · 162 B each`
+        : `${f.title.replace(/ML-KEM for the (CHILD|IKE) SA rekey, /, 'ML-KEM key, ')} · ${fmt(f.len)} B`;
+      const ay = r.y + 10, ltr = f.dir === 'R1>R3';
+      const x1 = r.esp ? XL + 3 : ltr ? XL + 2 : XR - 2, x2 = r.esp ? XR - 3 : ltr ? XR - 3 : XL + 3;
+      const w = pq ? 3 : r.esp ? 2 : 1.6;
+      svg += `<g class="seq-row ${state}" data-fi="${r.fis[r.esp && state !== 'ahead' ? Math.max(0, nSent - 1) : 0]}" role="button" tabindex="0" aria-label="${esc(label)}${state === 'ahead' ? ' (not sent yet)' : ''}: jump to it">
+        <rect class="seq-hit" x="${XL}" y="${r.y - 12}" width="${XR - XL}" height="${RH}"/>
+        <text class="seq-lbl" x="${MID}" y="${r.y + 1}" text-anchor="middle">${esc(label)}</text>
+        <line x1="${x1}" y1="${ay}" x2="${x2}" y2="${ay}" style="stroke:${cvar(f.kind)};stroke-width:${w}" ${r.esp ? `stroke-dasharray="7 4" marker-start="url(#sq-ESP)"` : ''} marker-end="url(#sq-${f.kind})"/>
+        ${isNow ? `<rect class="seq-now" x="${XR + 8}" y="${ay - 11}" width="46" height="22" rx="11"/><text class="seq-now-t" x="${XR + 31}" y="${ay + 4}" text-anchor="middle">now</text>` : ''}
+      </g>`;
+    }
+    for (const g of groups) {
+      const y1 = g.rows[0].y - 12, y2 = g.rows[g.rows.length - 1].y + RH - 14, m = (y1 + y2) / 2, half = Math.max(0, (y2 - y1) / 2 - 12);
+      const ahead = g.rows.every((r) => !r.fis.some(sent) && !r.fis.includes(curFi));
+      braces += `<g class="seq-brace${ahead ? ' ahead' : ''}"><path d="M${XL - 26} ${y1} q-8 0 -8 8 v${half} q0 4 -6 4 q6 0 6 4 v${half} q0 8 8 8"/>` +
+        `<text x="${XL - 46}" y="${m + 4}" text-anchor="end">${esc(PHN[ph[g.phase].name] || ph[g.phase].name)}</text></g>`;
+    }
+    const box = (x, a, b) => `<rect class="seq-end" x="${x - 75}" y="8" width="150" height="50" rx="8"/><text class="seq-end-t" x="${x}" y="29" text-anchor="middle">${a}</text><text class="seq-end-s" x="${x}" y="47" text-anchor="middle">${b}</text>`;
+    return `<svg class="seq" viewBox="0 0 ${W} ${H}" role="img" aria-label="IKEv2 exchange between R1, the initiator, and R3, the responder">
+      <defs>${arrowDefs}</defs>
+      ${box(XL, 'R1 · initiator', '198.51.100.1')}${box(XR, 'R3 · responder', '203.0.113.2')}
+      <line class="seq-life" x1="${XL}" y1="58" x2="${XL}" y2="${H - 26}"/><line class="seq-life" x1="${XR}" y1="58" x2="${XR}" y2="${H - 26}"/>
+      ${braces}${svg}
+      <text class="seq-key" x="${MID}" y="${H - 6}" text-anchor="middle">Gray: classical IKE · blue, thick: ML-KEM · green, dashed: ESP · faded: not sent yet · click a message to jump to it</text>
+    </svg>`;
+  }
+  $('#modal-body').addEventListener('click', (e) => {
+    const r = e.target.closest('.seq-row'); if (!r) return;
+    stop(); setFollow(true); jump(CAPIDX[+r.dataset.fi]);
+  });
+  $('#modal-body').addEventListener('keydown', (e) => {
+    const r = e.target.closest && e.target.closest('.seq-row');
+    if (r && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); stop(); setFollow(true); jump(CAPIDX[+r.dataset.fi]); }
+  });
   $('#modal-close').addEventListener('click', closeModal);
   $('#modal-bg').addEventListener('click', (e) => { if (e.target.id === 'modal-bg') closeModal(); });
 
@@ -929,6 +1099,7 @@
     if (t === 'cap') $('#tab-cap').classList.remove('has-unread');
     if (t === 'ev') markEventList(true);
     renderInk();
+    renderGuidePanel();
   }
   $('#tab-cap').addEventListener('click', () => showTab('cap'));
   $('#tab-ev').addEventListener('click', () => showTab('ev'));
@@ -1197,7 +1368,7 @@
   function dragger(handle, onMove) {
     handle.addEventListener('pointerdown', (e) => {
       e.preventDefault(); handle.classList.add('drag'); handle.setPointerCapture(e.pointerId);
-      const mv = (ev) => onMove(ev); const up = () => { handle.classList.remove('drag'); handle.removeEventListener('pointermove', mv); handle.removeEventListener('pointerup', up); renderInk(); };
+      const mv = (ev) => { onMove(ev); placeGuide(); }; const up = () => { handle.classList.remove('drag'); handle.removeEventListener('pointermove', mv); handle.removeEventListener('pointerup', up); renderInk(); placeGuide(); };
       handle.addEventListener('pointermove', mv); handle.addEventListener('pointerup', up);
     });
   }

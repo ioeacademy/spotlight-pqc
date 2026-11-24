@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
   <link rel="stylesheet" href="../v3-three-router/css/style.css?v=20261020b">
-  <link rel="stylesheet" href="css/journey.css?v=20261124a">
+  <link rel="stylesheet" href="css/journey.css?v=20261124c">
 </head>
 <body>
   <header class="lab-nav">
@@ -67,6 +67,7 @@
           <button class="tab" role="tab" id="tab-cap" aria-selected="true" aria-controls="t-cap">Capture<span class="role">R2 · r2-g1</span><span class="unread"></span></button>
           <button class="tab" role="tab" id="tab-ev" aria-selected="false" aria-controls="t-ev">Event list<span class="role">every hop</span></button>
           <span class="term-tools" id="tools-cap">
+            <button type="button" class="term-tool tgl guide-tgl" id="guide" aria-pressed="true" title="Guide: highlight the important fields of each frame and explain them">Guide</button>
             <button type="button" class="term-tool tgl" id="keys" aria-pressed="false" title="Decrypt with the published lab keys">Decryption keys</button>
             <button type="button" class="term-tool tgl" id="follow" aria-pressed="true" title="Select the packet that is moving">Follow the packet</button>
           </span>
@@ -114,7 +115,8 @@
 
   <script src="js/captures.js?v=20261124a"></script>
   <script src="js/journey-steps.js?v=20261124a"></script>
-  <script src="js/journey.js?v=20261124a"></script>
+  <script src="js/guide.js?v=20261124a"></script>
+  <script src="js/journey.js?v=20261124c"></script>
   <script>
     (function () {   // light by default; dark only when chosen
       const b = document.getElementById('theme-btn'), r = document.documentElement;
