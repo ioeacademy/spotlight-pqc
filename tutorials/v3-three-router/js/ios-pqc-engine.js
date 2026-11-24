@@ -727,18 +727,21 @@
     _policyProposals(d) {
       const out = [];
       const ok = p => p && p.enc.length && p.group.length;
+      // C8000V (IOS XE 26.02.1, CML capture): `pqc …` is accepted and kept in the config, but the platform offers no ML-KEM KE
+      // (`show crypto pqc-support` → No): the tunnel comes up classical, and even a mandatory `pqc` is not enforced
+      const noPqc = d.pqcSupport ? {} : { pqc: null };
       // user-defined policies first; the default policy (proposal "default") only when none is complete
       const pols = Object.entries(d.crypto.policies).filter(([n]) => n !== 'default');
       const userOk = pols.some(([, pol]) => pol.proposals.some(n => ok(this._proposal(d, n))));
       if (!userOk) {
         if (!d.crypto.defaults.policy) return out;
         const dp = d.crypto.policies.default ? d.crypto.policies.default.proposals : ['default'];
-        for (const pn of dp) { const p = this._proposal(d, pn); if (ok(p) && !out.some(o => o.name === pn)) out.push({ name: pn, ...p }); }
+        for (const pn of dp) { const p = this._proposal(d, pn); if (ok(p) && !out.some(o => o.name === pn)) out.push({ name: pn, ...p, ...noPqc }); }
         return out;
       }
       for (const [, pol] of pols) for (const pn of pol.proposals) {
         const p = this._proposal(d, pn);
-        if (p && p.enc.length && (p.integ.length || p.enc.every(e => e.includes('gcm'))) && p.group.length && !out.some(o => o.name === pn)) out.push({ name: pn, ...p });
+        if (p && p.enc.length && (p.integ.length || p.enc.every(e => e.includes('gcm'))) && p.group.length && !out.some(o => o.name === pn)) out.push({ name: pn, ...p, ...noPqc });
       }
       return out;
     }
@@ -802,7 +805,10 @@
           const d = ['enc', 'integ', 'group'].filter(f => !propsA.some(pa => propsB.some(pb => (f === 'integ' && pa.enc.concat(pb.enc).every(e => e.includes('gcm'))) || pa[f].some(x => pb[f].includes(x)))));
           why = ` No common ${d.map(f => ({ enc: 'encryption', integ: 'integrity', group: 'DH group' })[f]).join(', ') || 'combination of encryption, integrity and DH group'}.`;
         } else if (aA.length && aB.length) why = ` ML-KEM parameter sets differ (${A.hostname}: ${aA.map(x => PQC_LABEL[x]).join(' ')}; ${B.hostname}: ${aB.map(x => PQC_LABEL[x]).join(' ')}).`;
-        else why = ` ${reqA ? A.hostname : B.hostname} requires ML-KEM but ${reqA ? B.hostname : A.hostname} does not offer it.`;
+        else {
+          const lacks = reqA ? B : A;
+          why = ` ${reqA ? A.hostname : B.hostname} requires ML-KEM but ${lacks.hostname} does not offer it.${lacks.pqcSupport ? '' : ` ${lacks.hostname} is a ${lacks.model}: "show crypto pqc-support" → Supports PQC: No.`}`;
+        }
         return fail('NO_PROPOSAL_CHOSEN', `No matching IKEv2 proposal between ${A.hostname} and ${B.hostname}.${why}`, 'b', { mlkem: classicalOk, recv: propsA, exp: propsB });
       }
       // the initiator's KE payload uses the first DH group of its first proposal; a different choice costs one INVALID_KE_PAYLOAD round trip
@@ -1876,7 +1882,7 @@
       const showProposals = (d, only) => {
           const blk = (n, p) => [` IKEv2 proposal: ${n}`, `     Encryption : ${p.enc.map(e => e.toUpperCase()).join(' ')}`, `     Integrity  : ${p.integ.map(e => e.toUpperCase()).join(' ')}`,
             `     PRF        : ${(p.prf ? [p.prf] : p.integ).map(e => e.toUpperCase()).join(' ')}`, `     DH Group   : ${p.group.map(g => DH_SHOW[g] || 'Group ' + g).join(' ')}`,
-            `     PQC Key Exchange: ${p.pqc ? p.pqc.algs.map(a => PQC_LABEL[a]).join(' ') : 'none'}`];
+            `     PQC Key Exchange: ${p.pqc && d.pqcSupport ? p.pqc.algs.map(a => PQC_LABEL[a]).join(' ') : 'none'}`];
           const def = d.crypto.proposals.default || (d.crypto.defaults.proposal ? DEFAULT_PROPOSAL : null);
           const all = [...Object.entries(d.crypto.proposals).filter(([n]) => n !== 'default'), ...(def ? [['default', def]] : [])].filter(([n]) => !only || n === only);
           return all.flatMap(([n, p]) => blk(n, p));
@@ -2219,7 +2225,9 @@
           const algs = [...new Set(v.slice(1, 1 + n))];
           // simulator choice: Cisco's PQC guide only configures ML-KEM in a named proposal attached to a policy
           if (!neg && d.ctx.proposal === 'default') return [err('% Simulator: ML-KEM is not added to the default proposal. Create a named proposal (encryption, integrity, group, pqc) and attach it to an IKEv2 policy.')];
-          prop(d).pqc = neg ? null : { algs, mode: opt ? 'optional' : 'required' }; return [];
+          prop(d).pqc = neg ? null : { algs, mode: opt ? 'optional' : 'required' };
+          // C8000V capture: printed for `pqc …` and `no pqc …` alike; the line is accepted (no error)
+          return d.pqcSupport ? [] : [{ text: ' Warning!! IKEv2 PQC is not supported on this platform.', cls: 'warn' }];
         }, { no: true }))),
         C('pqc', (d) => { prop(d).pqc = null; return []; }, { no: true, noOnly: true }),
         C('end', toPriv, { cfg: false }), C('exit', goUp, { cfg: false }),
